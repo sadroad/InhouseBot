@@ -16,7 +16,7 @@ use serenity::framework::standard::macros::group;
 use serenity::framework::StandardFramework;
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
-use serenity::model::id::ChannelId;
+use serenity::model::id::{ChannelId,MessageId};
 use serenity::prelude::*;
 
 use tracing::{error, info};
@@ -39,7 +39,7 @@ impl TypeMapKey for QueueManager {
 pub struct QueueEmbed;
 
 impl TypeMapKey for QueueEmbed {
-    type Value = Message;
+    type Value = MessageId;
 }
 
 pub struct QueueChannel;
@@ -59,12 +59,31 @@ impl EventHandler for Handler {
     async fn message(&self, ctx: Context, msg: Message) {
         info!("Received a message from {}: {}", msg.author.name, msg.content);
         let channel_id;
+        let prefix: String;
         {
             let data = ctx.data.read().await;
             channel_id = data.get::<QueueChannel>().unwrap().clone();
+            prefix = data.get::<Prefix>().unwrap().clone();
         }
         if msg.channel_id == channel_id && !msg.author.bot {
-            msg.delete(&ctx.http).await.unwrap();
+            if msg.content.starts_with(&format!("{}admin", prefix)) {
+                let mut args = msg.content.split_whitespace();
+                args.next();
+                let command = args.next().unwrap();
+                match command {
+                    "unmark" => {
+                        return;
+                    },
+                    "mark" => {
+                        return;
+                    },
+                    _ => {
+                        msg.delete(&ctx).await.unwrap();
+                    }
+                }
+            } else {
+                msg.delete(&ctx.http).await.unwrap();
+            }
         }
     }
 }
@@ -109,6 +128,7 @@ async fn main() {
         data.insert::<Prefix>(prefix);
         data.insert::<QueueManager>(Arc::new(Mutex::new(manager)));
         data.insert::<QueueChannel>(ChannelId(0));
+        data.insert::<QueueEmbed>(MessageId(0));
     }
 
     let shard_manager = client.shard_manager.clone();
