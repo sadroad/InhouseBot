@@ -45,7 +45,8 @@ impl QueueManager{
 
     pub fn queue_player(&mut self, player: Player, role: &str) -> Result<(), &str> {
         //TODO check to see if player is already in no more than two roles or already in the same role
-        match role {
+        let role = role.to_lowercase();
+        match role.as_str() {
             "top" => self.top.push(player),
             "jungle" => self.jungle.push(player),
             "mid" => self.mid.push(player),
@@ -56,13 +57,22 @@ impl QueueManager{
         Ok(())
     }
 
-    pub fn leave_queue(&mut self, discord_id: String) -> Result<(), &str> {
-        //TODO allow for user to leave specfic role, not just all roles
-        self.top.retain(|x| x.discord_id != discord_id);
-        self.jungle.retain(|x| x.discord_id != discord_id);
-        self.mid.retain(|x| x.discord_id != discord_id);
-        self.bot.retain(|x| x.discord_id != discord_id);
-        self.support.retain(|x| x.discord_id != discord_id);
+    pub fn leave_queue(&mut self, discord_id: &str, role: &str) -> Result<(), &str> {
+        let role = role.to_lowercase();
+        match role.as_str(){
+            "top" => self.top.retain(|p| p.discord_id != discord_id),
+            "jungle" => self.jungle.retain(|p| p.discord_id != discord_id),
+            "mid" => self.mid.retain(|p| p.discord_id != discord_id),
+            "bot" => self.bot.retain(|p| p.discord_id != discord_id),
+            "support" => self.support.retain(|p| p.discord_id != discord_id),
+            _ => {
+                self.top.retain(|x| x.discord_id != discord_id);
+                self.jungle.retain(|x| x.discord_id != discord_id);
+                self.mid.retain(|x| x.discord_id != discord_id);
+                self.bot.retain(|x| x.discord_id != discord_id);
+                self.support.retain(|x| x.discord_id != discord_id);
+            }
+        }
         Ok(())
     }
 
