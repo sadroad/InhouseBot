@@ -1,3 +1,5 @@
+//TODO enable proper caching for the entire bot, look at serenity's cache options
+
 mod commands;
 mod lib;
 
@@ -89,7 +91,7 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(ping,queue,leave)]
+#[commands(ping,queue,leave,register)]
 struct General;
 
 #[group]
@@ -98,6 +100,7 @@ struct General;
 #[required_permissions("ADMINISTRATOR")]
 struct Admin;
 
+//Ignore the following error, rust-analyzer is causing a false positive
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().expect("Failed to load .env file");

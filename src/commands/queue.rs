@@ -24,11 +24,8 @@ pub async fn queue(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
             {
                 let data = ctx.data.write().await;
                 let queue = data.get::<QueueManager>().unwrap();
-                let player = Player {
-                    discord_id: msg.author.id.to_string(),
-                    discord_name: msg.author.name.to_string(),
-                };
                 let mut queue = queue.lock().await;
+                let player = msg.author.id;
                 if let Err(e) = queue.queue_player(player, &role) {
                     let response = msg.reply_mention(&ctx.http, &format!("Error: {}", e)).await?;
                     sleep(Duration::from_secs(3)).await;
@@ -64,7 +61,7 @@ pub async fn leave(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
                 let data = ctx.data.write().await;
                 let queue = data.get::<QueueManager>().unwrap();
                 let mut queue = queue.lock().await;
-                if let Err(e) = queue.leave_queue(msg.author.id.to_string().as_str(), &role) {
+                if let Err(e) = queue.leave_queue(msg.author.id, &role) {
                     let response = msg.reply_mention(&ctx.http, &format!("Error: {}", e)).await?;
                     sleep(Duration::from_secs(3)).await;
                     response.delete(&ctx.http).await?;
@@ -87,7 +84,7 @@ pub async fn display(ctx: &Context, msg: &Message){
         let data = ctx.data.read().await;
         let queue = data.get::<QueueManager>().unwrap();
         let queue = queue.lock().await;
-        body = queue.display();
+        body = queue.display(ctx).await;
     }
     {
         let mut data = ctx.data.write().await;
@@ -97,9 +94,7 @@ pub async fn display(ctx: &Context, msg: &Message){
                 .channel_id
                 .send_message(&ctx, |m| {
                     m.embed(|e| {
-                        e.fields(vec![
-                            ("Queue", body,true)
-                        ])
+                        e.field("Queue", body, true)
                         .footer(|f| f.text(&format!("Use {}queue <role> to join or {}leave to leave | All non-queue messages are deleted", prefix, prefix)))
                     })
             }).await.unwrap();
@@ -110,9 +105,7 @@ pub async fn display(ctx: &Context, msg: &Message){
             .channel_id
             .edit_message(&ctx, *queue, |m| {
                 m.embed(|e| {
-                    e.fields(vec![
-                        ("Queue", body,true)
-                    ])
+                    e.field("Queue", body,true)
                     .footer(|f| f.text(&format!("Use {}queue <role> to join or {}leave to leave | All non-queue messages are deleted", prefix, prefix)))
                 })
             }).await.unwrap();
