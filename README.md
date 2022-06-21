@@ -35,9 +35,9 @@
       - Usage: \<prefix>queue \<role>
     - leave
       - Usage: \<prefix>leave
-    - register \<account name>
+    - register
       - Sends registration info in DM's
-      - 
+      - All logic is done in DM's, nothing will be shown in server channels
   - Admin
     - mark
       - Sets the current channel to be the queue channel
