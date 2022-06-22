@@ -9,7 +9,6 @@ use crate::commands::admin::*;
 use crate::lib::inhouse::*;
 
 use std::env;
-use dotenv;
 use std::sync::Arc;
 
 use serenity::async_trait;
@@ -103,7 +102,6 @@ struct Admin;
 //Ignore the following error, rust-analyzer is causing a false positive
 #[tokio::main]
 async fn main() {
-    dotenv::dotenv().expect("Failed to load .env file");
     tracing_subscriber::fmt::init();
 
     let token = env::var("DISCORD_TOKEN").expect("Expected to find a discord token in the environment");

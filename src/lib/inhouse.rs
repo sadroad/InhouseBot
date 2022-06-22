@@ -89,7 +89,7 @@ impl QueueManager{
         Ok(())
     }
 
-    //TODO correct some logic with storing player queue in two locations, might be better to just store it in one but i duuno check it time profiler
+    //TODO correct some logic with storing player queue in two locations, might be better to just store it in one but check it profiler just incase
     pub fn leave_queue(&mut self, discord_id: UserId, role: &str) -> Result<(), &str> {
         let role = role.to_lowercase();
         let discord_id = &discord_id;

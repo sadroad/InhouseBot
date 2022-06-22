@@ -99,7 +99,6 @@ async fn unmark (ctx: &Context, msg: &Message) -> CommandResult {
             sleep(Duration::from_secs(3)).await;
             response.delete(&ctx.http).await?;
             clear_channel(ctx, msg.channel_id).await;
-            dbg!("Helo");
         }
     } else {
         let response = msg.reply_ping(&ctx.http, "No queue channel marked.").await?;
