@@ -2,6 +2,12 @@ use std::collections::HashMap;
 use serenity::model::id::UserId;
 use serenity::prelude::Context;
 
+static mut topEmoji: str  = ":frog: "
+static mut jgEmoji: str = ":dog: "
+static mut midEmoji: str = ":cat: "
+static mut botEmoji: str = ":blue_car: "
+static mut supEmoji: str = ":police_car: "
+
 pub struct QueueManager{
     top: Vec<UserId>, // discord_id
     jungle: Vec<UserId>,
@@ -128,11 +134,37 @@ impl QueueManager{
         Ok(())
     }
 
+    #[command]
+    pub async fn roleEmojis(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+        if correct_channel(ctx, msg).await {
+            if args.len() != 5 {
+                let prefix;
+                {
+                    let data = ctx.data.read().await;
+                    prefix = data.get::<Prefix>().unwrap().clone();
+                }
+                let response = msg.reply_mention(&ctx.http, &format!("Usage: {}roleEmojis <top emoji> <jg emoji> <mid emoji> <bot emoji> <sup emoji>", prefix)).await?;
+                sleep(Duration::from_secs(3)).await;
+                response.delete(&ctx.http).await?;
+            } else {
+                let str = args.single::<String>().unwrap();
+                let words: Vec<&str> = str.split().collect();
+                topEmoji = words[0]
+                jgEmoji = words[1]
+                midEmoji = words[2]
+                botEmoji = words[3]
+                supEmoji = words[4]
+                let response = msg.reply_mention(&ctx.http, &format!("Role Emojis have been set!")).await?;
+            }    
+        }
+        msg.delete(&ctx.http).await?;
+        Ok(())
+    }
+    
     pub async fn display(&self, ctx: &Context) -> String{
-        //TODO allow for customization of emoji for roles
         let mut output = String::new();
 
-        output.push_str("<:DEMON1:986612626790428722> ");
+        output.push_str(topEmoji);
         for player in self.top.iter(){
             let name = player.to_user(&ctx.http).await.unwrap().name;
             output.push_str(&name);
@@ -140,7 +172,7 @@ impl QueueManager{
         }
         output.push_str("\n");
 
-        output.push_str(":dog: ");
+        output.push_str(jgEmoji);
         for player in self.jungle.iter(){
             let name = player.to_user(&ctx.http).await.unwrap().name;
             output.push_str(&name);
@@ -148,7 +180,7 @@ impl QueueManager{
         }
         output.push_str("\n");
 
-        output.push_str(":cat: ");
+        output.push_str(midEmoji);
         for player in self.mid.iter(){
             let name = player.to_user(&ctx.http).await.unwrap().name;
             output.push_str(&name);
@@ -156,7 +188,7 @@ impl QueueManager{
         }
         output.push_str("\n");
 
-        output.push_str(":blue_car: ");
+        output.push_str(botEmoji);
         for player in self.bot.iter(){
             let name = player.to_user(&ctx.http).await.unwrap().name;
             output.push_str(&name);
@@ -164,7 +196,7 @@ impl QueueManager{
         }
         output.push_str("\n");
 
-        output.push_str(":police_car: ");
+        output.push_str(supEmoji);
         for player in self.support.iter(){
             let name = player.to_user(&ctx.http).await.unwrap().name;
             output.push_str(&name);
