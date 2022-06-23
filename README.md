@@ -2,8 +2,8 @@
 
 ## Implementation steps
 
-1. The ability for players to queue - Here
-2. Register summoner names for discord accounts
+1. The ability for players to queue
+2. Register summoner names for discord accounts - Here
 3. Save player data
    1. Postgresql database
 
@@ -14,9 +14,11 @@
 ## Rules for the bot
 
 1. A player can be in no more than two roles at a time
-2. Rating is dependent on the queued role
+2. Rating is independent of role
 3. No swapping roles once the game is accepted
-4. MMR is dependent on the ELO of player
+4. https://arxiv.org/pdf/2105.14069.pdf
+   1. Use True skill with initial sigma based on MSL points
+
 
 ## Documentation and other notes
 

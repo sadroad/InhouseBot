@@ -49,6 +49,12 @@ impl TypeMapKey for QueueChannel {
     type Value = ChannelId;
 }
 
+pub struct Riot;
+
+impl TypeMapKey for Riot {
+    type Value = String;
+}
+
 struct Handler;
 
 #[async_trait]
@@ -102,12 +108,14 @@ struct Admin;
 
 //Ignore the following error, rust-analyzer is causing a false positive
 #[tokio::main]
-async fn main() {
+async fn main() {   
     tracing_subscriber::fmt::init();
 
     let token = env::var("DISCORD_TOKEN").expect("Expected to find a discord token in the environment");
 
     let prefix = env::var("PREFIX").unwrap_or_else(|_| "!".to_string());
+
+    let riot_key = env::var("RGAPI_KEY").expect("Expect to find a riot api key in the environment");
 
     let manager = QueueManager::new();
 
@@ -131,6 +139,7 @@ async fn main() {
         data.insert::<QueueManager>(Arc::new(Mutex::new(manager)));
         data.insert::<QueueChannel>(ChannelId(0));
         data.insert::<QueueEmbed>(MessageId(0));
+        data.insert::<Riot>(riot_key);
     }
 
     let shard_manager = client.shard_manager.clone();

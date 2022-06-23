@@ -135,11 +135,11 @@ async fn role_emojis(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
         sleep(Duration::from_secs(3)).await;
         response.delete(&ctx.http).await?;
     } else {
-        *TOP_EMOJI.lock().unwrap() = args.single::<String>().unwrap();
-        *JG_EMOJI.lock().unwrap() = args.single::<String>().unwrap();
-        *MID_EMOJI.lock().unwrap() = args.single::<String>().unwrap();
-        *BOT_EMOJI.lock().unwrap() = args.single::<String>().unwrap();
-        *SUP_EMOJI.lock().unwrap() = args.single::<String>().unwrap();
+        *TOP_EMOJI.lock().unwrap() = format!("{} ",args.single::<String>().unwrap());
+        *JG_EMOJI.lock().unwrap() = format!("{} ",args.single::<String>().unwrap());
+        *MID_EMOJI.lock().unwrap() = format!("{} ",args.single::<String>().unwrap());
+        *BOT_EMOJI.lock().unwrap() = format!("{} ",args.single::<String>().unwrap());
+        *SUP_EMOJI.lock().unwrap() = format!("{} ",args.single::<String>().unwrap());
         let response = msg.reply_ping(&ctx.http, &format!("Role Emojis have been set!")).await?;
         sleep(Duration::from_secs(3)).await;
         response.delete(&ctx.http).await?;
