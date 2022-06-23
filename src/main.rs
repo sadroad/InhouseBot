@@ -79,7 +79,8 @@ impl EventHandler for Handler {
                         return;
                     },
                     _ => {
-                        msg.delete(&ctx).await.unwrap();
+                        msg.reply_mention(&ctx.http, "Don't use that command in the queue channel :P").await.unwrap();
+                        msg.delete(&ctx.http).await.unwrap();
                     }
                 }
             } else {
@@ -94,7 +95,7 @@ impl EventHandler for Handler {
 struct General;
 
 #[group]
-#[commands(mark,unmark)]
+#[commands(mark,unmark,role_emojis)]
 #[prefix("admin")]
 #[required_permissions("ADMINISTRATOR")]
 struct Admin;

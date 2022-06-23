@@ -9,7 +9,7 @@ use serenity::prelude::*;
 
 #[command]
 pub async fn queue(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    if correct_channel(ctx, msg).await {
+    if check_queue_channel(ctx, msg).await {
         if args.len() != 1 {
             let prefix;
             {
@@ -41,7 +41,7 @@ pub async fn queue(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
 
 #[command]
 pub async fn leave(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    if correct_channel(ctx, msg).await {
+    if check_queue_channel(ctx, msg).await {
         if args.len() > 1 {
             let prefix;
             {
@@ -114,7 +114,7 @@ pub async fn display(ctx: &Context, msg: &Message){
 
 }
 
-async fn correct_channel(ctx: &Context, msg: &Message) -> bool{
+async fn check_queue_channel(ctx: &Context, msg: &Message) -> bool{
     {
         let data = ctx.data.read().await;
         let channel_id = data.get::<QueueChannel>().unwrap();

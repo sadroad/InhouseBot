@@ -1,12 +1,17 @@
 use std::collections::HashMap;
 use serenity::model::id::UserId;
 use serenity::prelude::Context;
+use lazy_static::lazy_static;
+use std::sync::Mutex;
 
-static mut topEmoji: str  = ":frog: "
-static mut jgEmoji: str = ":dog: "
-static mut midEmoji: str = ":cat: "
-static mut botEmoji: str = ":blue_car: "
-static mut supEmoji: str = ":police_car: "
+//TODO store values in database for future use after restart and load them on startup
+lazy_static! {
+    pub static ref TOP_EMOJI: Mutex<String> = Mutex::new(String::from(":frog: "));
+    pub static ref JG_EMOJI: Mutex<String> = Mutex::new(String::from(":dog: "));
+    pub static ref MID_EMOJI: Mutex<String> = Mutex::new(String::from(":cat: "));
+    pub static ref BOT_EMOJI: Mutex<String> = Mutex::new(String::from(":blue_car: "));
+    pub static ref SUP_EMOJI: Mutex<String> = Mutex::new(String::from(":police_car: "));
+}
 
 pub struct QueueManager{
     top: Vec<UserId>, // discord_id
@@ -133,38 +138,10 @@ impl QueueManager{
         }
         Ok(())
     }
-
-    #[command]
-    pub async fn roleEmojis(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-        if correct_channel(ctx, msg).await {
-            if args.len() != 5 {
-                let prefix;
-                {
-                    let data = ctx.data.read().await;
-                    prefix = data.get::<Prefix>().unwrap().clone();
-                }
-                let response = msg.reply_mention(&ctx.http, &format!("Usage: {}roleEmojis <top emoji> <jg emoji> <mid emoji> <bot emoji> <sup emoji>", prefix)).await?;
-                sleep(Duration::from_secs(3)).await;
-                response.delete(&ctx.http).await?;
-            } else {
-                let str = args.single::<String>().unwrap();
-                let words: Vec<&str> = str.split().collect();
-                topEmoji = words[0]
-                jgEmoji = words[1]
-                midEmoji = words[2]
-                botEmoji = words[3]
-                supEmoji = words[4]
-                let response = msg.reply_mention(&ctx.http, &format!("Role Emojis have been set!")).await?;
-            }    
-        }
-        msg.delete(&ctx.http).await?;
-        Ok(())
-    }
     
     pub async fn display(&self, ctx: &Context) -> String{
         let mut output = String::new();
-
-        output.push_str(topEmoji);
+        output.push_str(&TOP_EMOJI.lock().unwrap());
         for player in self.top.iter(){
             let name = player.to_user(&ctx.http).await.unwrap().name;
             output.push_str(&name);
@@ -172,7 +149,7 @@ impl QueueManager{
         }
         output.push_str("\n");
 
-        output.push_str(jgEmoji);
+        output.push_str(&JG_EMOJI.lock().unwrap());
         for player in self.jungle.iter(){
             let name = player.to_user(&ctx.http).await.unwrap().name;
             output.push_str(&name);
@@ -180,7 +157,7 @@ impl QueueManager{
         }
         output.push_str("\n");
 
-        output.push_str(midEmoji);
+        output.push_str(&MID_EMOJI.lock().unwrap());
         for player in self.mid.iter(){
             let name = player.to_user(&ctx.http).await.unwrap().name;
             output.push_str(&name);
@@ -188,7 +165,7 @@ impl QueueManager{
         }
         output.push_str("\n");
 
-        output.push_str(botEmoji);
+        output.push_str(&BOT_EMOJI.lock().unwrap());
         for player in self.bot.iter(){
             let name = player.to_user(&ctx.http).await.unwrap().name;
             output.push_str(&name);
@@ -196,7 +173,7 @@ impl QueueManager{
         }
         output.push_str("\n");
 
-        output.push_str(supEmoji);
+        output.push_str(&SUP_EMOJI.lock().unwrap());
         for player in self.support.iter(){
             let name = player.to_user(&ctx.http).await.unwrap().name;
             output.push_str(&name);

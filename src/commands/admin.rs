@@ -2,10 +2,16 @@ use crate::{QueueChannel, Prefix, QueueEmbed};
 
 use super::queue::display;
 
-use serenity::framework::standard::{CommandResult, macros::command};
+use serenity::framework::standard::{Args, CommandResult, macros::command};
 use tokio::time::{sleep, Duration};
 use serenity::model::prelude::*;
 use serenity::prelude::*;
+
+use crate::lib::inhouse::TOP_EMOJI;
+use crate::lib::inhouse::JG_EMOJI;
+use crate::lib::inhouse::MID_EMOJI;
+use crate::lib::inhouse::BOT_EMOJI;
+use crate::lib::inhouse::SUP_EMOJI;
 
 // TODO Add support for marking more channels as other types of channels (e.g. log channels) or for marking multiple queue channels for different mmr ranges
 #[command]
@@ -114,4 +120,30 @@ async fn clear_channel( ctx: &Context, channel: ChannelId) {
     for message in messages {
         message.delete(&ctx.http).await.unwrap();
     }
+}
+
+#[command]
+#[aliases("roleEmojis")]
+async fn role_emojis(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+    if args.len() != 5 {
+        let prefix;
+        {
+            let data = ctx.data.read().await;
+            prefix = data.get::<Prefix>().unwrap().clone();
+        }
+        let response = msg.reply_ping(&ctx.http, &format!("Usage: {}admin roleEmojis <top emoji> <jg emoji> <mid emoji> <bot emoji> <sup emoji>", prefix)).await?;
+        sleep(Duration::from_secs(3)).await;
+        response.delete(&ctx.http).await?;
+    } else {
+        *TOP_EMOJI.lock().unwrap() = args.single::<String>().unwrap();
+        *JG_EMOJI.lock().unwrap() = args.single::<String>().unwrap();
+        *MID_EMOJI.lock().unwrap() = args.single::<String>().unwrap();
+        *BOT_EMOJI.lock().unwrap() = args.single::<String>().unwrap();
+        *SUP_EMOJI.lock().unwrap() = args.single::<String>().unwrap();
+        let response = msg.reply_ping(&ctx.http, &format!("Role Emojis have been set!")).await?;
+        sleep(Duration::from_secs(3)).await;
+        response.delete(&ctx.http).await?;
+    }
+    msg.delete(&ctx.http).await?;
+    Ok(())
 }
