@@ -1,10 +1,9 @@
-use std::collections::HashMap;
-use serenity::model::id::UserId;
+use std::collections::{HashMap, HashSet, VecDeque};
+use serenity::model::id::{UserId, GuildId};
 use serenity::prelude::Context;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
 use scraper::{Html, Selector};
-use phf::phf_map;
 use serde_json::{Value};
 use riven::consts::PlatformRoute::NA1;
 use riven::consts::{QueueType,Tier,Division};
@@ -19,77 +18,43 @@ lazy_static! {
     pub static ref SUP_EMOJI: Mutex<String> = Mutex::new(String::from(":police_car: "));
 }
 
-static RANKPOINTTABLE: phf::Map<&'static str, i8> = phf_map! {
-    "CHALLENGER 1" => 45,
-    "GRANDMASTER 1" => 42,
-    "MASTER 1" => 40,
-    "DIAMOND 1" => 36,
-    "DIAMOND 2" => 34,
-    "DIAMOND 3" => 31,
-    "DIAMOND 4" => 29,
-    "PLATINUM 1" => 27,
-    "PLATINUM 2" => 26,
-    "PLATINUM 3" => 23,
-    "PLATINUM 4" => 21,
-    "GOLD 1" => 20,
-    "GOLD 2" => 19,
-    "GOLD 3" => 18,
-    "GOLD 4" => 17,
-    "SILVER 1" => 16,
-    "SILVER 2" => 16,
-    "SILVER 3" => 15,
-    "SILVER 4" => 15,
-    "BRONZE 1" => 15,
-    "BRONZE 2" => 15,
-    "BRONZE 3" => 15,
-    "BRONZE 4" => 15,
-    "IRON 1" => 15,
-    "IRON 2" => 15,
-    "IRON 3" => 15,
-    "IRON 4" => 15,
-};
-
-static WINRATEPOINTTABLE: phf::Map<&'static str, f32> = phf_map! {
-    "70%" => 3.0,
-    "69%" => 2.8,
-    "68%" => 2.6,
-    "67%" => 2.4,
-    "66%" => 2.2,
-    "65%" => 2.0,
-    "64%" => 1.8,
-    "63%" => 1.6,
-    "62%" => 1.4,
-    "61%" => 1.2,
-    "60%" => 1.0,
-    "59%" => 0.88,
-    "58%" => 0.75,
-    "57%" => 0.63,
-    "56%" => 0.5,
-    "55%" => 0.38,
-    "54%" => 0.25,
-    "53%" => 0.13,
-    "52%" => 0.0,
-    "51%" => 0.0,
-    "50%" => 0.0,
-    "49%" => 0.0,
-    "48%" => 0.0,
-    "47%" => -0.06,
-    "46%" => -0.13,
-    "45%" => -0.19,
-    "44%" => -0.25,
-    "43%" => -0.31,
-    "42%" => -0.38,
-    "41%" => -0.44,
-    "40%" => -0.5,
-};
+static RANKPOINTTABLE: [(&str,i8);27] = [
+    ("CHALLENGER 1",45),
+    ("GRANDMASTER 1",42),
+    ("MASTER 1",40),
+    ("DIAMOND 1",36),
+    ("DIAMOND 2",34),
+    ("DIAMOND 3",31),
+    ("DIAMOND 4",29),
+    ("PLATINUM 1",27),
+    ("PLATINUM 2",26),
+    ("PLATINUM 3",23),
+    ("PLATINUM 4",21),
+    ("GOLD 1",20),
+    ("GOLD 2",19),
+    ("GOLD 3",18),
+    ("GOLD 4",17),
+    ("SILVER 1",16),
+    ("SILVER 2",16),
+    ("SILVER 3",15),
+    ("SILVER 4",15),
+    ("BRONZE 1",15),
+    ("BRONZE 2",15),
+    ("BRONZE 3",15),
+    ("BRONZE 4",15),
+    ("IRON 1",15),
+    ("IRON 2",15),
+    ("IRON 3",15),
+    ("IRON 4",15),
+];
 
 pub struct QueueManager{
-    top: Vec<UserId>, // discord_id
-    jungle: Vec<UserId>,
-    mid: Vec<UserId>,
-    bot: Vec<UserId>,
-    support: Vec<UserId>,
-    players: HashMap<UserId, Player>, //key: discord id, value: Player
+    top: VecDeque<UserId>, // discord_id
+    jungle: VecDeque<UserId>,
+    mid: VecDeque<UserId>,
+    bot: VecDeque<UserId>,
+    support: VecDeque<UserId>,
+    players: HashMap<UserId,Player>, //key: discord id, value: Player
     current_games: Vec<Game>,
 }
 
@@ -107,11 +72,11 @@ struct Game {
 impl QueueManager{
     pub fn new() -> QueueManager{
         QueueManager{
-            top: Vec::new(),
-            jungle: Vec::new(),
-            mid: Vec::new(),
-            bot: Vec::new(),
-            support: Vec::new(),
+            top: VecDeque::new(),
+            jungle: VecDeque::new(),
+            mid: VecDeque::new(),
+            bot: VecDeque::new(),
+            support: VecDeque::new(),
             players: HashMap::new(),
             current_games: Vec::new(),
         }
@@ -121,6 +86,7 @@ impl QueueManager{
         if self.players.contains_key(&discord_id){
             return Err("Player already registered");
         }
+        //TODO remove this logic and place it below in the register_player function once the point calculations are implemented
         let player = Player{
             riot_accounts: Vec::new(),
             queued: Vec::new(),
@@ -152,7 +118,7 @@ impl QueueManager{
             if p.queued.contains(&role.to_string()) {
                 return Err("Player is already in queue for this role");
             }
-            if p.queued.len() > 2 {
+            if p.queued.len() >= 2 {
                 return Err("Player is already in queue for two roles");
             }
             let role = role.to_lowercase();
@@ -160,23 +126,23 @@ impl QueueManager{
             match role.as_str() {
                 "top" => {
                     p.queued.push(role.clone()); 
-                    self.top.push(discord_id);
+                    self.top.push_back(discord_id);
                 },
-                "jungle" => {
+                "jungle" | "jung" | "jg" | "jng" => {
                     p.queued.push(role.clone());
-                    self.jungle.push(discord_id);
+                    self.jungle.push_back(discord_id);
                 },
                 "mid" => {
                     p.queued.push(role.clone());
-                    self.mid.push(discord_id);
+                    self.mid.push_back(discord_id);
                 },
-                "bot" => {
+                "bot" | "adc" => {
                     p.queued.push(role.clone());
-                    self.bot.push(discord_id);
+                    self.bot.push_back(discord_id);
                 },
-                "support" => {
+                "support" | "sup" => {
                     p.queued.push(role.clone());
-                    self.support.push(discord_id);
+                    self.support.push_back(discord_id);
                 },
                 _ => return Err("Invalid role")
             }
@@ -224,12 +190,62 @@ impl QueueManager{
         }
         Ok(())
     }
-    
-    pub async fn display(&self, ctx: &Context) -> String{
+
+    pub async fn number_of_unique_players(&self) -> usize{
+        let mut unique_players = HashSet::new();
+        for player in &self.top {
+            unique_players.insert(player);
+        }
+        for player in &self.jungle {
+            unique_players.insert(player);
+        }
+        for player in &self.mid {
+            unique_players.insert(player);
+        }
+        for player in &self.bot {
+            unique_players.insert(player);
+        }
+        for player in &self.support {
+            unique_players.insert(player);
+        }
+        unique_players.len()
+    }
+
+    pub async fn check_for_game(&mut self) -> Option<String>{
+        if self.top.len() >= 2 && self.jungle.len() >= 2 && self.mid.len() >= 2 && self.bot.len() >= 2 && self.support.len() >= 2 {
+            //TODO create game and add to current_games
+        } else {
+            let mut missing_roles = Vec::new();
+            if self.top.len() < 2 {
+                missing_roles.push("Top");
+            }
+            if self.jungle.len() < 2 {
+                missing_roles.push("Jungle");
+            }
+            if self.mid.len() < 2 {
+                missing_roles.push("Mid");
+            }
+            if self.bot.len() < 2 {
+                missing_roles.push("Bot");
+            }
+            if self.support.len() < 2 {
+                missing_roles.push("Support");
+            }
+            if missing_roles.len() > 0 {
+                return Some(format!("{}", missing_roles.join(", ")));
+            }
+        }
+        None
+    }
+
+    pub async fn display(&self, ctx: &Context, guild_id: GuildId) -> String{
+        //TODO update to show server name, not account name
         let mut output = String::new();
         output.push_str(&TOP_EMOJI.lock().unwrap());
         for player in self.top.iter(){
-            let name = player.to_user(&ctx.http).await.unwrap().name;
+            let name;
+            let username = player.to_user(&ctx.http).await.unwrap().name;
+            name = player.to_user(&ctx.http).await.unwrap().nick_in(&ctx.http, guild_id).await.unwrap_or_else(|| username);
             output.push_str(&name);
             output.push_str(" ");
         }
@@ -237,7 +253,9 @@ impl QueueManager{
 
         output.push_str(&JG_EMOJI.lock().unwrap());
         for player in self.jungle.iter(){
-            let name = player.to_user(&ctx.http).await.unwrap().name;
+            let name;
+            let username = player.to_user(&ctx.http).await.unwrap().name;
+            name = player.to_user(&ctx.http).await.unwrap().nick_in(&ctx.http, guild_id).await.unwrap_or_else(|| username);
             output.push_str(&name);
             output.push_str(" ");
         }
@@ -245,7 +263,9 @@ impl QueueManager{
 
         output.push_str(&MID_EMOJI.lock().unwrap());
         for player in self.mid.iter(){
-            let name = player.to_user(&ctx.http).await.unwrap().name;
+            let name;
+            let username = player.to_user(&ctx.http).await.unwrap().name;
+            name = player.to_user(&ctx.http).await.unwrap().nick_in(&ctx.http, guild_id).await.unwrap_or_else(|| username);
             output.push_str(&name);
             output.push_str(" ");
         }
@@ -253,7 +273,9 @@ impl QueueManager{
 
         output.push_str(&BOT_EMOJI.lock().unwrap());
         for player in self.bot.iter(){
-            let name = player.to_user(&ctx.http).await.unwrap().name;
+            let name;
+            let username = player.to_user(&ctx.http).await.unwrap().name;
+            name = player.to_user(&ctx.http).await.unwrap().nick_in(&ctx.http, guild_id).await.unwrap_or_else(|| username);
             output.push_str(&name);
             output.push_str(" ");
         }
@@ -261,7 +283,9 @@ impl QueueManager{
 
         output.push_str(&SUP_EMOJI.lock().unwrap());
         for player in self.support.iter(){
-            let name = player.to_user(&ctx.http).await.unwrap().name;
+            let name;
+            let username = player.to_user(&ctx.http).await.unwrap().name;
+            name = player.to_user(&ctx.http).await.unwrap().nick_in(&ctx.http, guild_id).await.unwrap_or_else(|| username);
             output.push_str(&name);
             output.push_str(" ");
         }
@@ -270,6 +294,7 @@ impl QueueManager{
     }
 }
 
+#[derive(PartialEq)]
 struct Rank {
     tier: String,
     division: String,
@@ -277,17 +302,46 @@ struct Rank {
     error: bool,
 }
 
+impl Rank {
+    fn new() -> Rank {
+        Rank {
+            tier: String::new(),
+            division: String::new(),
+            lp: String::new(),
+            error: false,
+        }
+    }
+}
+
+#[derive(PartialEq)]
 struct AccountInfo {
     name: String,
     account_level: i64,
     rank2021: Rank,
     rank2020: Rank,
     current_rank: String,
+    current_rank_lp: String,
     number_of_games: String,
     winrate: String,
 }
+
+impl AccountInfo {
+    fn new() -> AccountInfo {
+        AccountInfo {
+            name: String::new(),
+            account_level: 0,
+            rank2021: Rank::new(),
+            rank2020: Rank::new(),
+            current_rank: String::new(),
+            current_rank_lp: String::new(),
+            number_of_games: String::new(),
+            winrate: String::new(),
+        }
+    }
+}
+
 //TODO remove boilerplate code and generally clean up code and make it more readable. Also try to remove some of the magic numbers
-pub async fn get_msl_points(opggs: Vec<(String,String,i64)>, riot_key: &str) -> Result<i8, &'static str> {
+pub async fn get_msl_points(opggs: Vec<(String,String,i64)>, riot_key: &str) -> Result<i64, &'static str> {
     let mut accounts: Vec<AccountInfo> = Vec::new();
     for (opgg,id,level) in opggs {
         let mut rank2021 = Rank{
@@ -371,10 +425,12 @@ pub async fn get_msl_points(opggs: Vec<(String,String,i64)>, riot_key: &str) -> 
         let mut winrate = String::new();
         let mut number_of_games = String::new();
         let mut current_rank = String::new();
+        let mut current_rank_lp = String::new();
         for entry in ranked_info {
             if entry.queue_type == QueueType::RANKED_SOLO_5x5 {
                 winrate = format!("{}%", (entry.wins as f32 / (entry.wins + entry.losses) as f32 * 100.0) as i64);
                 number_of_games = format!("{}", entry.wins + entry.losses);
+                current_rank_lp = entry.league_points.to_string();
                 let mut tier = String::new();
                 match entry.tier.unwrap() {
                     Tier::BRONZE => tier = "Bronze".to_string(),
@@ -396,7 +452,9 @@ pub async fn get_msl_points(opggs: Vec<(String,String,i64)>, riot_key: &str) -> 
                     Division::IV => division = "4".to_string(),
                     _ => current_rank = "N/A".to_string(),
                 }
-                current_rank = format!("{} {}", tier.to_uppercase(), division);
+                if current_rank != "N/A" {
+                    current_rank = format!("{} {}", tier.to_uppercase(), division);
+                }
                 break;
             }
         }
@@ -404,6 +462,7 @@ pub async fn get_msl_points(opggs: Vec<(String,String,i64)>, riot_key: &str) -> 
             name: opgg,
             account_level: level,
             current_rank,
+            current_rank_lp,
             winrate,
             number_of_games,
             rank2021,
@@ -414,10 +473,130 @@ pub async fn get_msl_points(opggs: Vec<(String,String,i64)>, riot_key: &str) -> 
     let a: f64 = 4.0/57600.0;
     let b: f64 = a * -600.0;
     let c: f64 = a * 90000.0;
-    let account_level_max: i64 = 100;
-    let s2020_max = 0;
-    let s2021_max = 0;
-
-
-    Ok(1)
+    let mut account_level_max = 100;
+    let mut s2020_max = 0;
+    let mut s2021_max = 0;
+    let mut current_rank_max = 0;
+    let mut games_max_account = AccountInfo::new();
+    let mut current_rank_points = 0;
+    let mut ranked_points = 0;
+    let mut lp_points;
+    let mut ranked_point_index = 0;
+    for account in accounts {
+        if account.account_level > account_level_max {
+            account_level_max = account.account_level;
+        }
+        if !account.rank2020.error {
+            lp_points = account.rank2020.lp.parse::<i64>().unwrap() / 100;
+            let rank = &format!("{} {}",account.rank2020.tier.to_uppercase(),account.rank2020.division);
+            for i in 0..RANKPOINTTABLE.len(){
+                if RANKPOINTTABLE[i].0 == rank {
+                    ranked_points = RANKPOINTTABLE[i].1 as i64;
+                    ranked_point_index = i;
+                    break;
+                }
+            }
+            if ranked_point_index == 0 {
+                ranked_point_index = 1;
+            }
+            lp_points = lp_points * (RANKPOINTTABLE[ranked_point_index-1].1 as i64 - ranked_points);
+            if ranked_points < 40 {
+                ranked_points = ranked_points + lp_points;
+            }
+            if ranked_points > s2020_max {
+                s2020_max = ranked_points;
+            }
+        }
+        if !account.rank2021.error {
+            lp_points = account.rank2021.lp.parse::<i64>().unwrap() / 100;
+            let rank = &format!("{} {}",account.rank2021.tier.to_uppercase(),account.rank2021.division);
+            for i in 0..RANKPOINTTABLE.len(){
+                if RANKPOINTTABLE[i].0 == rank {
+                    ranked_points = RANKPOINTTABLE[i].1 as i64;
+                    ranked_point_index = i;
+                    break;
+                }
+            }
+            if rank == "CHALLENGER 1" {
+                ranked_point_index = 1;
+            }
+            lp_points = lp_points * (RANKPOINTTABLE[ranked_point_index-1].1 as i64 - ranked_points);
+            if ranked_points < 40 {
+                ranked_points = ranked_points + lp_points;
+            }
+            if ranked_points > s2021_max {
+                s2021_max = ranked_points;
+            }
+        }
+        if account.current_rank != "N/A" {
+            lp_points = account.current_rank_lp.parse::<i64>().unwrap() / 100;
+            let rank = &account.current_rank;
+            for i in 0..RANKPOINTTABLE.len(){
+                if RANKPOINTTABLE[i].0 == rank {
+                    ranked_points = RANKPOINTTABLE[i].1 as i64;
+                    ranked_point_index = i;
+                    break;
+                }
+            }
+            if rank == "CHALLENGER 1" {
+                ranked_point_index = 1;
+            }
+            lp_points = lp_points * (RANKPOINTTABLE[ranked_point_index-1].1 as i64 - ranked_points);
+            if ranked_points < 40 {
+                ranked_points = ranked_points + lp_points;
+            }
+            if ranked_points > current_rank_max {
+                current_rank_max = ranked_points;
+            }
+        }
+        if account.number_of_games > games_max_account.number_of_games {
+            games_max_account = account;
+        }
+    }
+    if games_max_account != AccountInfo::new() {
+        let mut account = games_max_account;
+        lp_points = account.current_rank_lp.parse::<i64>().unwrap() / 100;
+        let rank = &account.current_rank;
+        for i in 0..RANKPOINTTABLE.len(){
+            if RANKPOINTTABLE[i].0 == rank {
+                ranked_points = RANKPOINTTABLE[i].1 as i64;
+                ranked_point_index = i;
+                break;
+            }
+        }
+        if rank == "CHALLENGER 1" {
+            ranked_point_index = 1;
+        }
+        lp_points = lp_points * (RANKPOINTTABLE[ranked_point_index-1].1 as i64 - ranked_points);
+        if account.number_of_games.parse::<i64>().unwrap() > 300 {
+            account.number_of_games = 300.to_string();
+        } else if account.number_of_games.parse::<i64>().unwrap() < 30 {
+            account.number_of_games = 30.to_string();
+        }
+        let game_played_points  = (a * f64::powi(account.number_of_games.parse::<f64>().unwrap(),2) + b * account.number_of_games.parse::<f64>().unwrap() + c)/2.0;
+        if ranked_points >= 40 {
+            ranked_points = ranked_points + game_played_points as i64;
+        } else {
+            ranked_points = ranked_points + lp_points + game_played_points as i64;
+        }
+        current_rank_points = ranked_points;
+    }
+    let account_level_points = a * f64::powi(account_level_max as f64,2) + b * account_level_max as f64 + c;
+    let player = [
+        s2020_max,
+        s2021_max,
+        current_rank_max,
+        current_rank_points,
+    ];
+    let mut player_points = 0;
+    for i in 0..player.len() {
+        if player[i] > player_points {
+            player_points = player[i];
+        }
+    }
+    player_points = player_points + account_level_points as i64;
+    if player_points > 45 {
+        player_points = 45;
+    }
+    Ok(player_points)
 }

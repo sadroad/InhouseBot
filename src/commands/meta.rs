@@ -1,4 +1,4 @@
-use serenity::framework::standard::{CommandResult, macros::command};
+use serenity::framework::standard::{CommandResult, macros::command,CommandError};
 use serenity::model::prelude::*;
 use serenity::prelude::*;
 use tokio::time::{sleep, Duration};
@@ -6,6 +6,8 @@ use crate::{QueueManager, Riot};
 use crate::lib::inhouse::get_msl_points;
 use riven::consts::PlatformRoute::NA1;
 use riven::RiotApi;
+
+use tracing::log::info;
 
 #[command]
 pub async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
@@ -15,6 +17,7 @@ pub async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
 
 #[command]
 pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
+    //TODO register in the queue doesn't send a DM
     let author = &msg.author;
     {
         let data = ctx.data.read().await;
@@ -29,6 +32,7 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
             return Ok(());
         }
     }
+    dbg!(&author.name);
     msg.delete(&ctx.http).await?;
     let dm = author
         .direct_message(
@@ -36,7 +40,7 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
             |m| m.content("\nReply below with a list of all level 30+ accounts separated by a comma.\n*Example*: sadroad,Metashift,MetaSoren")
         )
         .await?;
-    let mut accounts = String::new();
+    let accounts;
     if let Some(response) = dm
         .channel_id
         .await_reply(&ctx)
@@ -47,6 +51,7 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
         // dm.delete(&ctx.http).await?;
     } else {
         dm.channel_id.say(&ctx.http, "No response received. Cancelling registration.").await?;
+        return Ok(());
     }
     let accounts = accounts.split(',').map(|x| x.trim().to_string()).collect::<Vec<String>>();
     let dm = dm.channel_id.say(&ctx.http, "Calculating initial rating...").await?;
@@ -73,6 +78,7 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
             let response = dm.channel_id.say(&ctx.http, &format!("Something seems to be wrong with the API, please notify sadroad#0001")).await?;
             sleep(Duration::from_secs(10)).await;
             response.delete(&ctx.http).await?;
+            return Ok(());
         }
     }
     let mut riot_accounts: Vec<String> = Vec::new();
@@ -90,7 +96,8 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
         riot_accounts.push(puuid.to_string());
         opgg_list.push((name,id,level));
     }
-    let MSL_sigma_value = get_msl_points(opgg_list,&riot_key).await;
+    let msl_sigma_value = get_msl_points(opgg_list,&riot_key).await;
+    info!("Estimate MSL Points {}",msl_sigma_value.unwrap());
     dm.delete(&ctx.http).await?;
     Ok(())
 }
