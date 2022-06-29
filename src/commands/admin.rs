@@ -16,6 +16,8 @@ use crate::lib::inhouse::SUP_EMOJI;
 // TODO Add support for marking more channels as other types of channels (e.g. log channels) or for marking multiple queue channels for different mmr ranges
 #[command]
 async fn mark (ctx: &Context, msg: &Message) -> CommandResult {
+    //TODO Add support for saving the marked channel to a database
+    //TODO Add ability to mark command channel where only bot commands will be registered
     let channel_id;
     {
         let data = ctx.data.read().await;

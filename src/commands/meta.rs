@@ -1,4 +1,4 @@
-use serenity::framework::standard::{CommandResult, macros::command,CommandError};
+use serenity::framework::standard::{CommandResult, macros::command};
 use serenity::model::prelude::*;
 use serenity::prelude::*;
 use tokio::time::{sleep, Duration};
@@ -22,7 +22,7 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
     {
         let data = ctx.data.read().await;
         let queue = data.get::<QueueManager>().unwrap();
-        let mut queue = queue.lock().await;
+        let queue = queue.lock().await;
         let player = msg.author.id;
         if let Err(e) = queue.check_registered_player(player){
             let response = msg.reply_mention(&ctx.http, &format!("Error: {}", e)).await?;
@@ -55,7 +55,7 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
     }
     let accounts = accounts.split(',').map(|x| x.trim().to_string()).collect::<Vec<String>>();
     let dm = dm.channel_id.say(&ctx.http, "Calculating initial rating...").await?;
-    let mut puuids: Vec<(String,String,String,i64)> = Vec::new(); // (name, puuid)
+    let mut puuids: Vec<(String,String,String,i32)> = Vec::new(); // (name, puuid)
     let riot_key;
     {
         let data = ctx.data.read().await;
@@ -68,7 +68,7 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
             .get_by_summoner_name(NA1, &account).await
         {
             if let Some(summoner) = summoner{
-                puuids.push((summoner.name,summoner.puuid,summoner.id,summoner.summoner_level));
+                puuids.push((summoner.name,summoner.puuid,summoner.id,summoner.summoner_level.try_into().unwrap()));
             } else {
                 let response = dm.channel_id.say(&ctx.http, &format!("{} is not a valid summoner.", account)).await?;
                 sleep(Duration::from_secs(3)).await;
@@ -82,7 +82,7 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
         }
     }
     let mut riot_accounts: Vec<String> = Vec::new();
-    let mut opgg_list: Vec<(String,String,i64)> = Vec::new();
+    let mut opgg_list: Vec<(String,String,i32)> = Vec::new();
     for (name,puuid,id,level) in puuids{
         let data = ctx.data.read().await;
         let queue = data.get::<QueueManager>().unwrap();
@@ -96,8 +96,29 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
         riot_accounts.push(puuid.to_string());
         opgg_list.push((name,id,level));
     }
-    let msl_sigma_value = get_msl_points(opgg_list,&riot_key).await;
-    info!("Estimate MSL Points {}",msl_sigma_value.unwrap());
+    let msl_simga_value;
+    match get_msl_points(opgg_list,&riot_key).await {
+        Ok(points) => {
+            msl_simga_value = points;
+        },
+        Err(e) => {
+            let response = dm.channel_id.say(&ctx.http, &format!("Error: {}", e)).await?;
+            sleep(Duration::from_secs(3)).await;
+            response.delete(&ctx.http).await?;
+            dm.delete(&ctx.http).await?;
+            return Ok(());
+        }
+    }
     dm.delete(&ctx.http).await?;
+    {
+        let mut data = ctx.data.write().await;
+        let queue = data.get_mut::<QueueManager>().unwrap();
+        let mut queue = queue.lock().await;
+        let player = msg.author.id;
+        queue.register_player(player, riot_accounts, msl_simga_value);
+    }
+    let response = dm.channel_id.say(&ctx.http, &format!("Successfully registered {}", author.name)).await?;
+    sleep(Duration::from_secs(3)).await;
+    response.delete(&ctx.http).await?;
     Ok(())
 }

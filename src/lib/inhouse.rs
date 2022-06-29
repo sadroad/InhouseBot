@@ -8,6 +8,9 @@ use serde_json::{Value};
 use riven::consts::PlatformRoute::NA1;
 use riven::consts::{QueueType,Tier,Division};
 use riven::RiotApi;
+use crate::lib::openskill::lib::{Rating,DEFAULT_SIGMA};
+
+use tracing::log::info;
 
 //TODO store values in database for future use after restart and load them on startup
 lazy_static! {
@@ -62,7 +65,7 @@ pub struct QueueManager{
 pub struct Player{
     pub riot_accounts: Vec<String>, // list of puuids for each account 
     pub queued: Vec<String>,
-    pub initial_rating: i32,
+    pub initial_rating: Rating,
 }
 
 struct Game {
@@ -82,18 +85,10 @@ impl QueueManager{
         }
     }
 
-    pub fn check_registered_player(&mut self, discord_id: UserId) -> Result<(), &str>{
+    pub fn check_registered_player(&self, discord_id: UserId) -> Result<(), &str>{
         if self.players.contains_key(&discord_id){
             return Err("Player already registered");
         }
-        //TODO remove this logic and place it below in the register_player function once the point calculations are implemented
-        let player = Player{
-            riot_accounts: Vec::new(),
-            queued: Vec::new(),
-            initial_rating: 0,
-        };
-        self.players.insert(discord_id, player);
-        //TODO save player to database
         Ok(())
     }
 
@@ -106,8 +101,14 @@ impl QueueManager{
         Ok(())
     }
 
-    pub fn register_player(&self){
-        //TODO
+    pub fn register_player(&mut self, discord_id: UserId, accounts: Vec<String>,msl_sigma_value: f64){
+        let player = Player{
+            riot_accounts: accounts,
+            queued: Vec::new(),
+            initial_rating: Rating::from(discord_id,msl_sigma_value,DEFAULT_SIGMA*(1.0+(msl_sigma_value/100.0))),
+        };
+       self.players.insert(discord_id, player);
+        //TODO save player to database
     }
 
     pub fn queue_player(&mut self, discord_id: UserId, role: &str) -> Result<(), &str> {
@@ -316,7 +317,7 @@ impl Rank {
 #[derive(PartialEq)]
 struct AccountInfo {
     name: String,
-    account_level: i64,
+    account_level: i32,
     rank2021: Rank,
     rank2020: Rank,
     current_rank: String,
@@ -341,7 +342,7 @@ impl AccountInfo {
 }
 
 //TODO remove boilerplate code and generally clean up code and make it more readable. Also try to remove some of the magic numbers
-pub async fn get_msl_points(opggs: Vec<(String,String,i64)>, riot_key: &str) -> Result<i64, &'static str> {
+pub async fn get_msl_points(opggs: Vec<(String,String,i32)>, riot_key: &str) -> Result<f64, &'static str> {
     let mut accounts: Vec<AccountInfo> = Vec::new();
     for (opgg,id,level) in opggs {
         let mut rank2021 = Rank{
@@ -470,9 +471,9 @@ pub async fn get_msl_points(opggs: Vec<(String,String,i64)>, riot_key: &str) -> 
         };
         accounts.push(account);
     }
-    let a: f64 = 4.0/57600.0;
-    let b: f64 = a * -600.0;
-    let c: f64 = a * 90000.0;
+    let a: f32 = 4.0/57600.0;
+    let b: f32 = a * -600.0;
+    let c: f32 = a * 90000.0;
     let mut account_level_max = 100;
     let mut s2020_max = 0;
     let mut s2021_max = 0;
@@ -487,11 +488,11 @@ pub async fn get_msl_points(opggs: Vec<(String,String,i64)>, riot_key: &str) -> 
             account_level_max = account.account_level;
         }
         if !account.rank2020.error {
-            lp_points = account.rank2020.lp.parse::<i64>().unwrap() / 100;
+            lp_points = account.rank2020.lp.parse::<i32>().unwrap() / 100;
             let rank = &format!("{} {}",account.rank2020.tier.to_uppercase(),account.rank2020.division);
             for i in 0..RANKPOINTTABLE.len(){
                 if RANKPOINTTABLE[i].0 == rank {
-                    ranked_points = RANKPOINTTABLE[i].1 as i64;
+                    ranked_points = RANKPOINTTABLE[i].1 as i32;
                     ranked_point_index = i;
                     break;
                 }
@@ -499,7 +500,7 @@ pub async fn get_msl_points(opggs: Vec<(String,String,i64)>, riot_key: &str) -> 
             if ranked_point_index == 0 {
                 ranked_point_index = 1;
             }
-            lp_points = lp_points * (RANKPOINTTABLE[ranked_point_index-1].1 as i64 - ranked_points);
+            lp_points = lp_points * (RANKPOINTTABLE[ranked_point_index-1].1 as i32 - ranked_points);
             if ranked_points < 40 {
                 ranked_points = ranked_points + lp_points;
             }
@@ -508,11 +509,11 @@ pub async fn get_msl_points(opggs: Vec<(String,String,i64)>, riot_key: &str) -> 
             }
         }
         if !account.rank2021.error {
-            lp_points = account.rank2021.lp.parse::<i64>().unwrap() / 100;
+            lp_points = account.rank2021.lp.parse::<i32>().unwrap() / 100;
             let rank = &format!("{} {}",account.rank2021.tier.to_uppercase(),account.rank2021.division);
             for i in 0..RANKPOINTTABLE.len(){
                 if RANKPOINTTABLE[i].0 == rank {
-                    ranked_points = RANKPOINTTABLE[i].1 as i64;
+                    ranked_points = RANKPOINTTABLE[i].1 as i32;
                     ranked_point_index = i;
                     break;
                 }
@@ -520,7 +521,7 @@ pub async fn get_msl_points(opggs: Vec<(String,String,i64)>, riot_key: &str) -> 
             if rank == "CHALLENGER 1" {
                 ranked_point_index = 1;
             }
-            lp_points = lp_points * (RANKPOINTTABLE[ranked_point_index-1].1 as i64 - ranked_points);
+            lp_points = lp_points * (RANKPOINTTABLE[ranked_point_index-1].1 as i32 - ranked_points);
             if ranked_points < 40 {
                 ranked_points = ranked_points + lp_points;
             }
@@ -529,11 +530,11 @@ pub async fn get_msl_points(opggs: Vec<(String,String,i64)>, riot_key: &str) -> 
             }
         }
         if account.current_rank != "N/A" {
-            lp_points = account.current_rank_lp.parse::<i64>().unwrap() / 100;
+            lp_points = account.current_rank_lp.parse::<i32>().unwrap() / 100;
             let rank = &account.current_rank;
             for i in 0..RANKPOINTTABLE.len(){
                 if RANKPOINTTABLE[i].0 == rank {
-                    ranked_points = RANKPOINTTABLE[i].1 as i64;
+                    ranked_points = RANKPOINTTABLE[i].1 as i32;
                     ranked_point_index = i;
                     break;
                 }
@@ -541,7 +542,7 @@ pub async fn get_msl_points(opggs: Vec<(String,String,i64)>, riot_key: &str) -> 
             if rank == "CHALLENGER 1" {
                 ranked_point_index = 1;
             }
-            lp_points = lp_points * (RANKPOINTTABLE[ranked_point_index-1].1 as i64 - ranked_points);
+            lp_points = lp_points * (RANKPOINTTABLE[ranked_point_index-1].1 as i32 - ranked_points);
             if ranked_points < 40 {
                 ranked_points = ranked_points + lp_points;
             }
@@ -555,11 +556,11 @@ pub async fn get_msl_points(opggs: Vec<(String,String,i64)>, riot_key: &str) -> 
     }
     if games_max_account != AccountInfo::new() {
         let mut account = games_max_account;
-        lp_points = account.current_rank_lp.parse::<i64>().unwrap() / 100;
+        lp_points = account.current_rank_lp.parse::<i32>().unwrap() / 100;
         let rank = &account.current_rank;
         for i in 0..RANKPOINTTABLE.len(){
             if RANKPOINTTABLE[i].0 == rank {
-                ranked_points = RANKPOINTTABLE[i].1 as i64;
+                ranked_points = RANKPOINTTABLE[i].1 as i32;
                 ranked_point_index = i;
                 break;
             }
@@ -567,21 +568,21 @@ pub async fn get_msl_points(opggs: Vec<(String,String,i64)>, riot_key: &str) -> 
         if rank == "CHALLENGER 1" {
             ranked_point_index = 1;
         }
-        lp_points = lp_points * (RANKPOINTTABLE[ranked_point_index-1].1 as i64 - ranked_points);
+        lp_points = lp_points * (RANKPOINTTABLE[ranked_point_index-1].1 as i32 - ranked_points);
         if account.number_of_games.parse::<i64>().unwrap() > 300 {
             account.number_of_games = 300.to_string();
         } else if account.number_of_games.parse::<i64>().unwrap() < 30 {
             account.number_of_games = 30.to_string();
         }
-        let game_played_points  = (a * f64::powi(account.number_of_games.parse::<f64>().unwrap(),2) + b * account.number_of_games.parse::<f64>().unwrap() + c)/2.0;
+        let game_played_points  = (a * f32::powi(account.number_of_games.parse::<f32>().unwrap(),2) + b * account.number_of_games.parse::<f32>().unwrap() + c)/2.0;
         if ranked_points >= 40 {
-            ranked_points = ranked_points + game_played_points as i64;
+            ranked_points = ranked_points + game_played_points as i32;
         } else {
-            ranked_points = ranked_points + lp_points + game_played_points as i64;
+            ranked_points = ranked_points + lp_points + game_played_points as i32;
         }
         current_rank_points = ranked_points;
     }
-    let account_level_points = a * f64::powi(account_level_max as f64,2) + b * account_level_max as f64 + c;
+    let account_level_points = a * f32::powi(account_level_max as f32,2) + b * account_level_max as f32 + c;
     let player = [
         s2020_max,
         s2021_max,
@@ -594,9 +595,9 @@ pub async fn get_msl_points(opggs: Vec<(String,String,i64)>, riot_key: &str) -> 
             player_points = player[i];
         }
     }
-    player_points = player_points + account_level_points as i64;
+    player_points = player_points + account_level_points as i32;
     if player_points > 45 {
         player_points = 45;
     }
-    Ok(player_points)
+    Ok(player_points.into())
 }

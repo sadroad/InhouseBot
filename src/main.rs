@@ -110,7 +110,6 @@ struct Admin;
 #[tokio::main]
 async fn main() {   
     tracing_subscriber::fmt::init();
-
     let token = env::var("DISCORD_TOKEN").expect("Expected to find a discord token in the environment");
 
     let prefix = env::var("PREFIX").unwrap_or_else(|_| "!".to_string());
