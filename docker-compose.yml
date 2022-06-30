@@ -2,3 +2,26 @@ services:
   bot:
     build: .
     env_file: .env
+    volumes:
+      - type: volume
+        source: dbsocket
+        target: /var/run/postgresql
+    depends_on:
+      - db
+  db:
+    image: postgres:alpine
+    volumes:
+      - type: volume
+        source: pgdata
+        target: /var/lib/postgresql/data
+      - type: volume
+        source: dbsocket
+        target: /var/run/postgresql
+    environment:
+      POSTGRES_DB: mochi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - 5432:5432
+volumes:
+  pgdata:     # Persistent data volume for the database
+  dbsocket:   # Socket mounting volume

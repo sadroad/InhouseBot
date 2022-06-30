@@ -5,6 +5,8 @@ use diesel::r2d2::{ConnectionManager, Pool};
 use diesel::prelude::*;
 use std::env;
 
+use diesel_migrations::{embed_migrations};
+
 use crate::commands::admin::clear_channel;
 
 use super::inhouse::{Player,TOP_EMOJI,JG_EMOJI,MID_EMOJI,BOT_EMOJI,SUP_EMOJI};
@@ -21,11 +23,14 @@ pub type PgPool = Pool<ConnectionManager<PgConnection>>;
 pub struct Values {
     pub db_connection: PgPool,
 }
-
+embed_migrations!();
 pub fn establish_connection() -> PgPool {
     let database_url = env::var("DATABASE_URL").expect("Expected to find a database url in the environment");
     let manager = ConnectionManager::<PgConnection>::new(database_url);
-    Pool::new(manager).expect("Failed to create pool.")
+    let pool = Pool::new(manager).expect("Failed to create pool.");
+    let conn = pool.get().expect("Failed to get connection from pool.");
+    embedded_migrations::run(&conn).unwrap();
+    pool
 }
 
 pub fn save_player(conn: &PgConnection, discord_id: &UserId, player_info: &Player) {

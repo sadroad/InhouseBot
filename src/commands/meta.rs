@@ -72,7 +72,11 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
                 sleep(Duration::from_secs(3)).await;
                 response.delete(&ctx.http).await?;
             }
-        } else {
+        } else{
+            if let Err(err) = riot_api.summoner_v4()
+            .get_by_summoner_name(NA1, &account).await {
+                dbg!(err);
+            }
             let response = dm.channel_id.say(&ctx.http, &format!("Something seems to be wrong with the API, please notify sadroad#0001")).await?;
             sleep(Duration::from_secs(10)).await;
             response.delete(&ctx.http).await?;
@@ -108,6 +112,12 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
         }
     }
     dm.delete(&ctx.http).await?;
+    if riot_accounts.len() == 0 {
+        let response = dm.channel_id.say(&ctx.http, &format!("No accounts for successful registration {}", author.name)).await?;
+        sleep(Duration::from_secs(3)).await;
+        response.delete(&ctx.http).await?;
+        return Ok(());
+    }
     {
         let data = ctx.data.write().await;
         let queue = data.get::<QueueManager>().unwrap();

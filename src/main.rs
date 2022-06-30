@@ -1,6 +1,8 @@
 //TODO enable proper caching for the entire bot, look at serenity's cache options
 #[macro_use]
 extern crate diesel;
+#[macro_use]
+extern crate diesel_migrations;
 
 mod commands;
 mod lib;
