@@ -9,8 +9,8 @@ use riven::consts::PlatformRoute::NA1;
 use riven::consts::{QueueType,Tier,Division};
 use riven::RiotApi;
 use crate::lib::openskill::lib::{Rating,DEFAULT_SIGMA};
-
-use tracing::log::info;
+use crate::lib::database::{save_player};
+use crate::DBCONNECTION;
 
 //TODO store values in database for future use after restart and load them on startup
 lazy_static! {
@@ -61,11 +61,11 @@ pub struct QueueManager{
     current_games: Vec<Game>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Player{
     pub riot_accounts: Vec<String>, // list of puuids for each account 
     pub queued: Vec<String>,
-    pub initial_rating: Rating,
+    pub rating: Rating,
 }
 
 struct Game {
@@ -105,10 +105,13 @@ impl QueueManager{
         let player = Player{
             riot_accounts: accounts,
             queued: Vec::new(),
-            initial_rating: Rating::from(discord_id,msl_sigma_value,DEFAULT_SIGMA*(1.0+(msl_sigma_value/100.0))),
+            rating: Rating::from(discord_id,msl_sigma_value,DEFAULT_SIGMA*(1.0+(msl_sigma_value/100.0))),
         };
-       self.players.insert(discord_id, player);
-        //TODO save player to database
+        {
+            let conn = DBCONNECTION.db_connection.get().unwrap();
+            save_player(&conn,&discord_id,&player);
+        }
+        self.players.insert(discord_id, player);
     }
 
     pub fn queue_player(&mut self, discord_id: UserId, role: &str) -> Result<(), &str> {

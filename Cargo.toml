@@ -9,8 +9,11 @@ tracing-subscriber = "0.3"
 lazy_static = "1.4"
 scraper = "0.13"
 reqwest = "0.11"
-phf = { version = "0.10", features = ["macros"] }
+probability = "0.18"
+# phf = { version = "0.10", features = ["macros"] }
 serde_json = "1.0"
+rand = "0.8"
+diesel = { version = "1.4", features = ["postgres", "r2d2"] }
 
 [dependencies.tokio]
 version = "1"

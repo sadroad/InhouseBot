@@ -7,8 +7,6 @@ use crate::lib::inhouse::get_msl_points;
 use riven::consts::PlatformRoute::NA1;
 use riven::RiotApi;
 
-use tracing::log::info;
-
 #[command]
 pub async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
     msg.channel_id.say(&ctx.http, "Pong!").await?;
@@ -111,8 +109,8 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
     }
     dm.delete(&ctx.http).await?;
     {
-        let mut data = ctx.data.write().await;
-        let queue = data.get_mut::<QueueManager>().unwrap();
+        let data = ctx.data.write().await;
+        let queue = data.get::<QueueManager>().unwrap();
         let mut queue = queue.lock().await;
         let player = msg.author.id;
         queue.register_player(player, riot_accounts, msl_simga_value);

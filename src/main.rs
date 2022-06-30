@@ -1,4 +1,6 @@
 //TODO enable proper caching for the entire bot, look at serenity's cache options
+#[macro_use]
+extern crate diesel;
 
 mod commands;
 mod lib;
@@ -7,6 +9,7 @@ use crate::commands::meta::*;
 use crate::commands::queue::*;
 use crate::commands::admin::*;
 use crate::lib::inhouse::*;
+use crate::lib::database::*;
 
 use std::env;
 use std::sync::Arc;
@@ -20,7 +23,16 @@ use serenity::model::gateway::Ready;
 use serenity::model::id::{ChannelId,MessageId};
 use serenity::prelude::*;
 
+use lazy_static::lazy_static;
+
 use tracing::{error, info};
+
+
+lazy_static!{
+    pub static ref DBCONNECTION: Values = {
+        Values { db_connection: establish_connection() }
+    };
+}
 
 pub struct ShardManagerContainer;
 

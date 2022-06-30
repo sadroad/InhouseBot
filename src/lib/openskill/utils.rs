@@ -1,7 +1,5 @@
 use super::lib::Rating;
 
-use tracing::log::info;
-
 pub fn score(q: f64, i: f64) -> f64 {
     if q< i {
         return 0.0;
@@ -12,7 +10,7 @@ pub fn score(q: f64, i: f64) -> f64 {
     return 0.5;
 }
 
-fn rankings(teams: &Vec<Vec<Rating>>) -> Vec<usize> {
+fn rankings() -> Vec<usize> {
     let team_scores = [0,1];
     let mut out_rank: Vec<usize> = Vec::new();
     let mut s = 0;
@@ -30,7 +28,7 @@ fn rankings(teams: &Vec<Vec<Rating>>) -> Vec<usize> {
 }
 
 pub fn team_rating<'a>(teams: &'a Vec<Vec<Rating>>) -> Vec<(f64, f64, &'a Vec<Rating>, usize)> {
-    let rank = rankings(teams);
+    let rank = rankings();
     return teams.iter().enumerate().map(|(i, team)| {
         return (
             team.iter().map(|rating| {
@@ -46,6 +44,6 @@ pub fn team_rating<'a>(teams: &'a Vec<Vec<Rating>>) -> Vec<(f64, f64, &'a Vec<Ra
     }).collect::<Vec<(f64, f64, &'a Vec<Rating>, usize)>>();
 }
 
-pub fn gamma(c: f64,sigmaSq: f64) -> f64 {
-    return f64::sqrt(sigmaSq)/c;
+pub fn gamma(c: f64,sigma_sq: f64) -> f64 {
+    return f64::sqrt(sigma_sq)/c;
 }

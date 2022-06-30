@@ -7,8 +7,6 @@ use serenity::model::id::{MessageId};
 use serenity::model::prelude::*;
 use serenity::prelude::*;
 
-use tracing::log::info;
-
 #[command]
 pub async fn queue(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     if check_queue_channel(ctx, msg).await {
