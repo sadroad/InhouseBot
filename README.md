@@ -3,13 +3,13 @@
 ## Implementation steps
 
 1. The ability for players to queue - Done
-2. Register summoner names for discord accounts - Here
-3. Save player data
+2. Register summoner names for discord accounts - Done
+3. Save player data - Done
    1. Postgresql database
 
-4. Create teams based on queued players
-5. Allow players to accept and decline matches.
-6. Create an Elo system for better matchmaking
+4. Create teams based on queued players - Done
+5. Allow players to accept and decline matches. - Here
+6. Create an Elo system for better matchmaking - Done
 7. QoL Changes
    1. Buttons for queuing up alongside the commands
    2. Ephemeral Messages instead of pings or mentions

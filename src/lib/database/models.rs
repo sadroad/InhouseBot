@@ -3,8 +3,8 @@ use super::schema::{server_information, player, player_ratings};
 #[derive(Queryable)]
 pub struct ServerInformation {
     pub id: i32,
-    pub queue_channel: Option<i64>,
-    pub command_channel: Option<i64>,
+    pub queue_channel: i64,
+    pub command_channel: i64,
     pub top_emoji: String,
     pub jungle_emoji: String,
     pub mid_emoji: String,
@@ -16,8 +16,8 @@ pub struct ServerInformation {
 #[derive(Insertable)]
 #[table_name="server_information"]
 pub struct NewServerInformation{
-    pub queue_channel: Option<i64>,
-    pub command_channel: Option<i64>,
+    pub queue_channel: i64,
+    pub command_channel: i64,
     pub top_emoji: String,
     pub jungle_emoji: String,
     pub mid_emoji: String,
@@ -26,7 +26,7 @@ pub struct NewServerInformation{
 }
 
 #[derive(Queryable)]
-pub struct Player {
+pub struct DbPlayer {
     pub discord_id: i64,
     pub accounts: Vec<String>
 }

@@ -1,3 +1,4 @@
+use crate::lib::inhouse::QueueManager;
 use crate::{QueueChannel, Prefix, QueueEmbed};
 
 use super::queue::display;
@@ -6,6 +7,9 @@ use serenity::framework::standard::{Args, CommandResult, macros::command};
 use tokio::time::{sleep, Duration};
 use serenity::model::prelude::*;
 use serenity::prelude::*;
+use serenity::http::Http;
+
+use std::sync::Arc;
 
 use crate::lib::inhouse::TOP_EMOJI;
 use crate::lib::inhouse::JG_EMOJI;
@@ -13,10 +17,19 @@ use crate::lib::inhouse::MID_EMOJI;
 use crate::lib::inhouse::BOT_EMOJI;
 use crate::lib::inhouse::SUP_EMOJI;
 
+use crate::lib::inhouse::Player;
+use crate::lib::openskill::lib::Rating;
+
+use tracing::log::info;
+use rand::Rng;
+
+use crate::lib::database::{update_emoji,update_queue_channel};
+use crate::DBCONNECTION;
+
+
 // TODO Add support for marking more channels as other types of channels (e.g. log channels) or for marking multiple queue channels for different mmr ranges
 #[command]
 async fn mark (ctx: &Context, msg: &Message) -> CommandResult {
-    //TODO Add support for saving the marked channel to a database
     //TODO Add ability to mark command channel where only bot commands will be registered
     let channel_id;
     {
@@ -55,11 +68,13 @@ async fn mark (ctx: &Context, msg: &Message) -> CommandResult {
                         *queue_channel = msg.channel_id;
                         let queue = data.get_mut::<QueueEmbed>().unwrap();
                         *queue = MessageId(0);
+                        let conn = DBCONNECTION.db_connection.get().unwrap();
+                        update_queue_channel(&conn, &msg.channel_id);
                     }
                     let response = msg.reply_ping(&ctx.http, "Queue channel marked.").await?;
                     sleep(Duration::from_secs(3)).await;
                     response.delete(&ctx.http).await?;
-                    clear_channel(ctx, msg.channel_id).await;
+                    clear_channel(&ctx.http, msg.channel_id).await;
                     display(ctx, msg).await;
                 } else {
                     let response = msg.reply_ping(&ctx.http, "Cancelled.").await?;
@@ -102,11 +117,13 @@ async fn unmark (ctx: &Context, msg: &Message) -> CommandResult {
                 *queue_channel = ChannelId(0);
                 let queue = data.get_mut::<QueueEmbed>().unwrap();
                 *queue = MessageId(0);
+                let conn = DBCONNECTION.db_connection.get().unwrap();
+                update_queue_channel(&conn, &ChannelId(0));
             }
             let response = msg.reply_ping(&ctx.http, "Queue channel unmarked.").await?;
             sleep(Duration::from_secs(3)).await;
             response.delete(&ctx.http).await?;
-            clear_channel(ctx, msg.channel_id).await;
+            clear_channel(&ctx.http, msg.channel_id).await;
         }
     } else {
         let response = msg.reply_ping(&ctx.http, "No queue channel marked.").await?;
@@ -117,10 +134,10 @@ async fn unmark (ctx: &Context, msg: &Message) -> CommandResult {
     Ok(())
 }
 
-async fn clear_channel( ctx: &Context, channel: ChannelId) {
-    let messages = channel.messages(&ctx.http, |m| m).await.unwrap();
+pub async fn clear_channel( ctx: &Arc<Http>, channel: ChannelId) {
+    let messages = channel.messages(&ctx, |m| m).await.unwrap();
     for message in messages {
-        message.delete(&ctx.http).await.unwrap();
+        message.delete(&ctx).await.unwrap();
     }
 }
 
@@ -137,15 +154,56 @@ async fn role_emojis(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
         sleep(Duration::from_secs(3)).await;
         response.delete(&ctx.http).await?;
     } else {
-        *TOP_EMOJI.lock().unwrap() = format!("{} ",args.single::<String>().unwrap());
-        *JG_EMOJI.lock().unwrap() = format!("{} ",args.single::<String>().unwrap());
-        *MID_EMOJI.lock().unwrap() = format!("{} ",args.single::<String>().unwrap());
-        *BOT_EMOJI.lock().unwrap() = format!("{} ",args.single::<String>().unwrap());
-        *SUP_EMOJI.lock().unwrap() = format!("{} ",args.single::<String>().unwrap());
+        let top = args.single::<String>().unwrap() + " ";
+        *TOP_EMOJI.lock().unwrap() = format!("{} ",top);
+        let jg = args.single::<String>().unwrap() + " ";
+        *JG_EMOJI.lock().unwrap() = format!("{} ",jg);
+        let mid = args.single::<String>().unwrap() + " ";
+        *MID_EMOJI.lock().unwrap() = format!("{} ",mid);
+        let bot = args.single::<String>().unwrap() + " ";
+        *BOT_EMOJI.lock().unwrap() = format!("{} ",bot);
+        let sup = args.single::<String>().unwrap() + " ";
+        *SUP_EMOJI.lock().unwrap() = format!("{} ",sup);
+        {
+            let conn = DBCONNECTION.db_connection.get().unwrap();
+            update_emoji(&conn, [&top, &jg, &mid, &bot, &sup]);
+        }
         let response = msg.reply_ping(&ctx.http, &format!("Role Emojis have been set!")).await?;
         sleep(Duration::from_secs(3)).await;
         response.delete(&ctx.http).await?;
     }
+    msg.delete(&ctx.http).await?;
+    Ok(())
+}
+
+#[command]
+async fn test(ctx: &Context, msg: &Message) -> CommandResult{
+    let mut data = ctx.data.write().await;
+    let mut queue = data.get_mut::<QueueManager>().unwrap();
+    let mut queue = queue.lock().await;
+    //register 10 fake players
+    info!("Registering 10 fake players");
+    for i in 0..10 {
+        //random range
+        let mut rng = rand::thread_rng();
+        let mut rng = rng.gen_range(15.0..=45.0);
+        queue.register_player(UserId(i), vec![], rng);
+    }
+    info!("Done. Adding to queue");
+    queue.queue_player(UserId(0), &String::from("top")).unwrap();
+    queue.queue_player(UserId(1), &String::from("top")).unwrap();
+    queue.queue_player(UserId(2), &String::from("jng")).unwrap();
+    queue.queue_player(UserId(3), &String::from("jng")).unwrap();
+    queue.queue_player(UserId(4), &String::from("mid")).unwrap();
+    queue.queue_player(UserId(5), &String::from("mid")).unwrap();
+    queue.queue_player(UserId(6), &String::from("bot")).unwrap();
+    queue.queue_player(UserId(7), &String::from("bot")).unwrap();
+    queue.queue_player(UserId(8), &String::from("sup")).unwrap();
+    queue.queue_player(UserId(9), &String::from("sup")).unwrap();
+    info!("Done.");
+    let response = msg.reply_ping(&ctx.http, "Test complete.").await?;
+    sleep(Duration::from_secs(3)).await;
+    response.delete(&ctx.http).await?;
     msg.delete(&ctx.http).await?;
     Ok(())
 }

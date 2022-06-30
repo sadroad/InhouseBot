@@ -113,7 +113,7 @@ impl EventHandler for Handler {
 struct General;
 
 #[group]
-#[commands(mark,unmark,role_emojis)]
+#[commands(mark,unmark,role_emojis,test)]
 #[prefix("admin")]
 #[required_permissions("ADMINISTRATOR")]
 struct Admin;
@@ -143,12 +143,14 @@ async fn main() {
         .await
         .expect("Error creating client");
 
+    let queue_channel = init_server_info(&DBCONNECTION.db_connection.get().unwrap(), &client.cache_and_http.http).await;
+
     {
         let mut data = client.data.write().await;
         data.insert::<ShardManagerContainer>(client.shard_manager.clone());
         data.insert::<Prefix>(prefix);
         data.insert::<QueueManager>(Arc::new(Mutex::new(manager)));
-        data.insert::<QueueChannel>(ChannelId(0));
+        data.insert::<QueueChannel>(queue_channel);
         data.insert::<QueueEmbed>(MessageId(0));
         data.insert::<Riot>(riot_key);
     }

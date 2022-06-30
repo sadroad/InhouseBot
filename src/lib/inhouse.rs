@@ -8,11 +8,15 @@ use serde_json::{Value};
 use riven::consts::PlatformRoute::NA1;
 use riven::consts::{QueueType,Tier,Division};
 use riven::RiotApi;
+use itertools::iproduct;
 use crate::lib::openskill::lib::{Rating,DEFAULT_SIGMA};
-use crate::lib::database::{save_player};
+use crate::lib::database::{save_player,get_players};
 use crate::DBCONNECTION;
 
-//TODO store values in database for future use after restart and load them on startup
+use super::openskill::lib::predicte_win;
+
+use tracing::log::info;
+
 lazy_static! {
     pub static ref TOP_EMOJI: Mutex<String> = Mutex::new(String::from(":frog: "));
     pub static ref JG_EMOJI: Mutex<String> = Mutex::new(String::from(":dog: "));
@@ -59,6 +63,7 @@ pub struct QueueManager{
     support: VecDeque<UserId>,
     players: HashMap<UserId,Player>, //key: discord id, value: Player
     current_games: Vec<Game>,
+    tentative_games: Vec<Game>,
 }
 
 #[derive(Debug, Clone)]
@@ -69,12 +74,48 @@ pub struct Player{
 }
 
 struct Game {
-    players: Vec<Player>, 
+    top: [UserId;2],
+    jungle: [UserId;2],
+    mid: [UserId;2],
+    bot: [UserId;2],
+    support: [UserId;2],
+}
+
+impl Game {
+    fn new() -> Game {
+        Game {
+            top: [UserId(0);2],
+            jungle: [UserId(0);2],
+            mid: [UserId(0);2],
+            bot: [UserId(0);2],
+            support: [UserId(0);2],
+        }
+    }
+    fn from(teams: Vec<Vec<&UserId>>) -> Game {
+        let mut game = Game::new();
+        for team in teams {
+            for (i,player) in team.iter().enumerate() {
+                match i {
+                    0 => game.top[i] = *player.clone(),
+                    1 => game.jungle[i] = *player.clone(),
+                    2 => game.mid[i] = *player.clone(),
+                    3 => game.bot[i] = *player.clone(),
+                    4 => game.support[i] = *player.clone(),
+                    _ => panic!("Too many players in a team"),
+                }
+            }
+        }
+        game
+    }
+
+    fn display(&self, ctx: &Context, guild_id: GuildId) -> String{
+        String::new()
+    }
 }
 
 impl QueueManager{
     pub fn new() -> QueueManager{
-        QueueManager{
+        let mut queue = QueueManager{
             top: VecDeque::new(),
             jungle: VecDeque::new(),
             mid: VecDeque::new(),
@@ -82,7 +123,14 @@ impl QueueManager{
             support: VecDeque::new(),
             players: HashMap::new(),
             current_games: Vec::new(),
+            tentative_games: Vec::new(),
+        };
+        let conn = DBCONNECTION.db_connection.get().unwrap();
+        let result = get_players(&conn);
+        for player in result{
+            queue.players.insert(player.0,player.1);
         }
+        queue
     }
 
     pub fn check_registered_player(&self, discord_id: UserId) -> Result<(), &str>{
@@ -107,10 +155,10 @@ impl QueueManager{
             queued: Vec::new(),
             rating: Rating::from(discord_id,msl_sigma_value,DEFAULT_SIGMA*(1.0+(msl_sigma_value/100.0))),
         };
-        {
-            let conn = DBCONNECTION.db_connection.get().unwrap();
-            save_player(&conn,&discord_id,&player);
-        }
+        // {
+        //     let conn = DBCONNECTION.db_connection.get().unwrap();
+        //     save_player(&conn,&discord_id,&player);
+        // }
         self.players.insert(discord_id, player);
     }
 
@@ -217,7 +265,47 @@ impl QueueManager{
 
     pub async fn check_for_game(&mut self) -> Option<String>{
         if self.top.len() >= 2 && self.jungle.len() >= 2 && self.mid.len() >= 2 && self.bot.len() >= 2 && self.support.len() >= 2 {
-            //TODO create game and add to current_games
+            info!("Starting game");
+            //TODO this needs a lot of work, no O(n^2)
+            let mut final_team: Vec<Vec<&UserId>> = Vec::new();
+
+            let mut tmp_top: VecDeque<UserId> = VecDeque::new();
+            let mut tmp_jungle: VecDeque<UserId> = VecDeque::new();
+            let mut tmp_mid: VecDeque<UserId> = VecDeque::new();
+            let mut tmp_bot: VecDeque<UserId> = VecDeque::new();
+            let mut tmp_support: VecDeque<UserId> = VecDeque::new();
+            tmp_top.push_back(self.top.pop_front().unwrap());
+            tmp_top.push_back(self.top.pop_front().unwrap());
+            tmp_jungle.push_back(self.jungle.pop_front().unwrap());
+            tmp_jungle.push_back(self.jungle.pop_front().unwrap());
+            tmp_mid.push_back(self.mid.pop_front().unwrap());
+            tmp_mid.push_back(self.mid.pop_front().unwrap());
+            tmp_bot.push_back(self.bot.pop_front().unwrap());
+            tmp_bot.push_back(self.bot.pop_front().unwrap());
+            tmp_support.push_back(self.support.pop_front().unwrap());
+            tmp_support.push_back(self.support.pop_front().unwrap());
+
+            'outer: for (top, jng, mid, bot ,sup) in iproduct!(tmp_top.iter(), tmp_jungle.iter(), tmp_mid.iter(), tmp_bot.iter(), tmp_support.iter()) {
+                for (top2, jng2, mid2, bot2, sup2) in iproduct!(tmp_top.iter(), tmp_jungle.iter(), tmp_mid.iter(), tmp_bot.iter(), tmp_support.iter()) {
+                    if top != top2 && jng != jng2 && mid != mid2 && bot != bot2 && sup != sup2 {
+                        let team1 = vec![self.players.get(top).unwrap().rating.clone(), self.players.get(jng).unwrap().rating.clone(), self.players.get(mid).unwrap().rating.clone(), self.players.get(bot).unwrap().rating.clone(), self.players.get(sup).unwrap().rating.clone()];
+                        let team2 = vec![self.players.get(top2).unwrap().rating.clone(), self.players.get(jng2).unwrap().rating.clone(), self.players.get(mid2).unwrap().rating.clone(), self.players.get(bot2).unwrap().rating.clone(), self.players.get(sup2).unwrap().rating.clone()];
+                        let teams = vec![team1, team2];
+                        let team1_winrate = predicte_win(&teams);
+                        if team1_winrate > 0.45 && team1_winrate < 0.55 {
+                            let team1 = vec![top, jng, mid, bot, sup];
+                            let team2 = vec![top2, jng2, mid2, bot2, sup2];
+                            final_team = vec![team1, team2];
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+            //assuming valid game was found
+            //TODO Logic incase no game is found
+            let game = Game::from(final_team);
+            self.tentative_games.push(game);
+
         } else {
             let mut missing_roles = Vec::new();
             if self.top.len() < 2 {
@@ -243,13 +331,17 @@ impl QueueManager{
     }
 
     pub async fn display(&self, ctx: &Context, guild_id: GuildId) -> String{
-        //TODO update to show server name, not account name
         let mut output = String::new();
         output.push_str(&TOP_EMOJI.lock().unwrap());
         for player in self.top.iter(){
-            let name;
-            let username = player.to_user(&ctx.http).await.unwrap().name;
-            name = player.to_user(&ctx.http).await.unwrap().nick_in(&ctx.http, guild_id).await.unwrap_or_else(|| username);
+            let name: String;
+            if player == &0 || player == &1 || player == &2 || player == &3 || player == &4 || player == &5 || player == &6 || player == &7 || player == &8 || player == &9 {
+                name = String::from("Unknown");
+            } else {
+                name = player.to_user(&ctx.http).await.unwrap().name;
+            }
+            // let username = player.to_user(&ctx.http).await.unwrap().name;
+            // name = player.to_user(&ctx.http).await.unwrap().nick_in(&ctx.http, guild_id).await.unwrap_or_else(|| username);
             output.push_str(&name);
             output.push_str(" ");
         }
@@ -258,8 +350,13 @@ impl QueueManager{
         output.push_str(&JG_EMOJI.lock().unwrap());
         for player in self.jungle.iter(){
             let name;
-            let username = player.to_user(&ctx.http).await.unwrap().name;
-            name = player.to_user(&ctx.http).await.unwrap().nick_in(&ctx.http, guild_id).await.unwrap_or_else(|| username);
+            if player == &0 || player == &1 || player == &2 || player == &3 || player == &4 || player == &5 || player == &6 || player == &7 || player == &8 || player == &9 {
+                name = String::from("Unknown");
+            } else {
+                name = player.to_user(&ctx.http).await.unwrap().name;
+            }
+            // let username = player.to_user(&ctx.http).await.unwrap().name;
+            // name = player.to_user(&ctx.http).await.unwrap().nick_in(&ctx.http, guild_id).await.unwrap_or_else(|| username);
             output.push_str(&name);
             output.push_str(" ");
         }
@@ -268,8 +365,13 @@ impl QueueManager{
         output.push_str(&MID_EMOJI.lock().unwrap());
         for player in self.mid.iter(){
             let name;
-            let username = player.to_user(&ctx.http).await.unwrap().name;
-            name = player.to_user(&ctx.http).await.unwrap().nick_in(&ctx.http, guild_id).await.unwrap_or_else(|| username);
+            if player == &0 || player == &1 || player == &2 || player == &3 || player == &4 || player == &5 || player == &6 || player == &7 || player == &8 || player == &9 {
+                name = String::from("Unknown");
+            } else {
+                name = player.to_user(&ctx.http).await.unwrap().name;
+            }
+            // let username = player.to_user(&ctx.http).await.unwrap().name;
+            // name = player.to_user(&ctx.http).await.unwrap().nick_in(&ctx.http, guild_id).await.unwrap_or_else(|| username);
             output.push_str(&name);
             output.push_str(" ");
         }
@@ -278,8 +380,13 @@ impl QueueManager{
         output.push_str(&BOT_EMOJI.lock().unwrap());
         for player in self.bot.iter(){
             let name;
-            let username = player.to_user(&ctx.http).await.unwrap().name;
-            name = player.to_user(&ctx.http).await.unwrap().nick_in(&ctx.http, guild_id).await.unwrap_or_else(|| username);
+            if player == &0 || player == &1 || player == &2 || player == &3 || player == &4 || player == &5 || player == &6 || player == &7 || player == &8 || player == &9 {
+                name = String::from("Unknown");
+            } else {
+                name = player.to_user(&ctx.http).await.unwrap().name;
+            }
+            // let username = player.to_user(&ctx.http).await.unwrap().name;
+            // name = player.to_user(&ctx.http).await.unwrap().nick_in(&ctx.http, guild_id).await.unwrap_or_else(|| username);
             output.push_str(&name);
             output.push_str(" ");
         }
@@ -288,8 +395,13 @@ impl QueueManager{
         output.push_str(&SUP_EMOJI.lock().unwrap());
         for player in self.support.iter(){
             let name;
-            let username = player.to_user(&ctx.http).await.unwrap().name;
-            name = player.to_user(&ctx.http).await.unwrap().nick_in(&ctx.http, guild_id).await.unwrap_or_else(|| username);
+            if player == &0 || player == &1 || player == &2 || player == &3 || player == &4 || player == &5 || player == &6 || player == &7 || player == &8 || player == &9 {
+                name = String::from("Unknown");
+            } else {
+                name = player.to_user(&ctx.http).await.unwrap().name;
+            }
+            // let username = player.to_user(&ctx.http).await.unwrap().name;
+            // name = player.to_user(&ctx.http).await.unwrap().nick_in(&ctx.http, guild_id).await.unwrap_or_else(|| username);
             output.push_str(&name);
             output.push_str(" ");
         }
@@ -298,7 +410,7 @@ impl QueueManager{
     }
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq,Debug)]
 struct Rank {
     tier: String,
     division: String,
@@ -317,7 +429,7 @@ impl Rank {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 struct AccountInfo {
     name: String,
     account_level: i32,
@@ -386,17 +498,21 @@ pub async fn get_msl_points(opggs: Vec<(String,String,i32)>, riot_key: &str) -> 
                 } else {
                     rank2021.error = true;
                 }
-                if let Some(division) = json["props"]["pageProps"]["data"]["previous_seasons"][0]["tier_info"]["division"].as_str() {
+                if let Some(division) = json["props"]["pageProps"]["data"]["previous_seasons"][0]["tier_info"]["division"].as_i64() {
                     rank2021.division = division.to_string();
                 } else {
                     rank2021.error = true;
                 }
                 let test = &json["props"]["pageProps"]["data"]["previous_seasons"][0]["tier_info"]["lp"];
-                if test.is_string() {
-                    rank2021.lp = test.as_str().unwrap().to_string();
+                if test.is_i64() {
+                    rank2021.lp = test.as_i64().unwrap().to_string();
+                } else if test.is_null() {
+                    rank2021.lp = 0.to_string();
                 } else {
                     rank2021.lp = "N/A".to_string();
                 }
+            } else {
+                rank2021.error = true;
             }
             if lastseason2 {
                 if let Some(rank) = json["props"]["pageProps"]["data"]["previous_seasons"][1]["tier_info"]["tier"].as_str() {
@@ -404,17 +520,21 @@ pub async fn get_msl_points(opggs: Vec<(String,String,i32)>, riot_key: &str) -> 
                 } else {
                     rank2020.error = true;
                 }
-                if let Some(division) = json["props"]["pageProps"]["data"]["previous_seasons"][1]["tier_info"]["division"].as_str() {
+                if let Some(division) = json["props"]["pageProps"]["data"]["previous_seasons"][1]["tier_info"]["division"].as_i64() {
                     rank2020.division = division.to_string();
                 } else {
                     rank2020.error = true;
                 }
                 let test = &json["props"]["pageProps"]["data"]["previous_seasons"][1]["tier_info"]["lp"];
-                if test.is_string() {
-                    rank2020.lp = test.as_str().unwrap().to_string();
+                if test.is_i64() {
+                    rank2020.lp = test.as_i64().unwrap().to_string();
+                } else if test.is_null(){
+                    rank2020.lp = 0.to_string();
                 } else {
                     rank2020.lp = "N/A".to_string();
                 }
+            } else {
+                rank2020.error = true;
             }
             
         } else {
@@ -487,6 +607,7 @@ pub async fn get_msl_points(opggs: Vec<(String,String,i32)>, riot_key: &str) -> 
     let mut lp_points;
     let mut ranked_point_index = 0;
     for account in accounts {
+        dbg!("{:?}",&account);
         if account.account_level > account_level_max {
             account_level_max = account.account_level;
         }

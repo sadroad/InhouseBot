@@ -178,23 +178,13 @@ fn tm_full(teams: &Vec<Vec<Rating>>) -> Vec<Vec<Rating>> {
 }
 
 
-pub fn predicte_win(teams: &Vec<Vec<Rating>>) {
+pub fn predicte_win(teams: &Vec<Vec<Rating>>) -> f64{
     let team_ratings = team_rating(teams);
     let n:f64 = teams.len() as f64;
     let denom:f64  = (n * (n - 1.0)) / 2.0;
-    for i in 0..team_ratings.len() {
-        for q in 0..team_ratings.len() {
-            if q == i {
-                continue;
-            }
-            let mu_a = team_ratings[i].0;
-            let mu_b = team_ratings[q].0;
-            let sigmas_sq_a = team_ratings[i].1;
-            let sigmas_sq_b = team_ratings[q].1;
-            info!("{}-{}",team_ratings[i].2[0].user_id,phi_major((mu_a - mu_b) / f64::sqrt(n * BETA_SQUARED + f64::powi(sigmas_sq_a,2)+ f64::powi(sigmas_sq_b,2)))/denom);
-            for player in team_ratings[i].2.iter() {
-                info!("{}-{}",player.user_id,player.ordinal());
-            }
-        }
-    }
+    let mu_a = team_ratings[0].0;
+    let mu_b = team_ratings[1].0;
+    let sigmas_sq_a = team_ratings[0].1;
+    let sigmas_sq_b = team_ratings[1].1;
+    phi_major((mu_a - mu_b) / f64::sqrt(n * BETA_SQUARED + f64::powi(sigmas_sq_a,2)+ f64::powi(sigmas_sq_b,2)))/denom
 }

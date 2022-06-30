@@ -15,7 +15,7 @@ pub async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
 
 #[command]
 pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
-    //TODO register in the queue doesn't send a DM
+    //FIXME register in the queue doesn't send a DM
     let author = &msg.author;
     {
         let data = ctx.data.read().await;

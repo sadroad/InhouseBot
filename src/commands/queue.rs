@@ -73,7 +73,10 @@ pub async fn leave(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
     Ok(())
 }
 
+//FIXME First .queue after bot restart where marked queue channel was read from DB causes # of unique players and missing roles to not update
+//To fix it requires a second .queue call 
 pub async fn display(ctx: &Context, msg: &Message){
+    show_games(ctx, msg).await;
     let prefix;
     {
         let data = ctx.data.read().await;
@@ -116,7 +119,7 @@ pub async fn display(ctx: &Context, msg: &Message){
                     e.field("Queue", body,false)
                     .field("Missing Roles", missing_roles, false)
                     .field("# of Unique Players", num_players.to_string(), false)
-                    .footer(|f| f.text(&format!("Use {}queue <role> to join or {}leave to leave | All non-queue messages are deleted", prefix, prefix)))
+                    .footer(|f| f.text(&format!("Use {}queue <role> to join or {}leave <role?>to leave | All non-queue messages are deleted", prefix, prefix)))
                 })
             }).await.unwrap();
         } else {
@@ -126,10 +129,16 @@ pub async fn display(ctx: &Context, msg: &Message){
                 m.embed(|e| {
                     e.field("Queue", body,false)
                     .field("# of Unique Players", num_players.to_string(), false)
-                    .footer(|f| f.text(&format!("Use {}queue <role> to join or {}leave to leave | All non-queue messages are deleted", prefix, prefix)))
+                    .footer(|f| f.text(&format!("Use {}queue <role> to join or {}leave <role?>to leave | All non-queue messages are deleted", prefix, prefix)))
                 })
             }).await.unwrap();
         }
+    }
+}
+
+async fn show_games(ctx: &Context, msg: &Message) {
+    {
+        
     }
 }
 
