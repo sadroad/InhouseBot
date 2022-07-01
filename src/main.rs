@@ -1,4 +1,5 @@
 //TODO enable proper caching for the entire bot, look at serenity's cache options
+//TODO look into the sharding feature of serenity, it's a good idea to have a shard for each guild but it seems to be lagging the bot by disconnecting from the guild
 #[macro_use]
 extern crate diesel;
 #[macro_use]

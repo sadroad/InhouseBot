@@ -7,9 +7,8 @@ use serenity::model::prelude::*;
 use serenity::prelude::*;
 use tokio::time::{sleep, Duration};
 
-use tracing::log::info;
-
 #[command]
+#[aliases("Queue")]
 pub async fn queue(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     if check_queue_channel(ctx, msg).await {
         if args.len() != 1 {
@@ -84,7 +83,6 @@ pub async fn leave(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
 }
 
 pub async fn display(ctx: &Context, guild_id: GuildId) {
-    info!("Dispalyed");
     let prefix;
     let body;
     let num_players;
@@ -141,7 +139,6 @@ pub async fn display(ctx: &Context, guild_id: GuildId) {
             }
         }
     }
-    info!("Done");
 }
 
 async fn show_games(ctx: &Context, guild_id: GuildId) {
@@ -154,7 +151,6 @@ async fn show_games(ctx: &Context, guild_id: GuildId) {
         queue_channel = *data.get::<QueueChannel>().unwrap();
     }
     if !games.is_empty() {
-        info!("Sending message");
         for mut game in games {
             if game.displayed {
                 continue;

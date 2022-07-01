@@ -38,7 +38,7 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
     let dm = author
         .direct_message(
             &ctx.http,
-            |m| m.content("\nReply below with a list of all level 30+ accounts separated by a comma.\n*Example*: sadroad,Metashift,MetaSoren")
+            |m| m.content("\nReply below with a list of all level 30+ accounts separated by a comma. Place the account you will be playing on first\n*Example*: sadroad,Metashift,MetaSoren")
         )
         .await?;
     let accounts;
@@ -51,10 +51,12 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
         accounts = response.content.to_string();
         dm.delete(&ctx.http).await?;
     } else {
-        dm.channel_id
+        let resp = dm.channel_id
             .say(&ctx.http, "No response received. Cancelling registration.")
             .await?;
+        sleep(Duration::from_secs(3)).await;
         dm.delete(&ctx.http).await?;
+        resp.delete(&ctx.http).await?;
         return Ok(());
     }
     let accounts = accounts

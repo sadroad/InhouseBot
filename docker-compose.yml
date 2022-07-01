@@ -1,7 +1,7 @@
 services:
   bot:
     build: .
-    env_file: .env
+    env_file: .docker
     volumes:
       - type: volume
         source: dbsocket
@@ -21,7 +21,7 @@ services:
       POSTGRES_DB: mochi
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - 5432:5432
+      - 0.0.0.0:8080:5432
 volumes:
-  pgdata:     # Persistent data volume for the database
-  dbsocket:   # Socket mounting volume
+  pgdata:
+  dbsocket:

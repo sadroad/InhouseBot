@@ -6,3 +6,5 @@ Cargo.lock
 
 .dccache
 .vscode
+.env.docker
+.docker

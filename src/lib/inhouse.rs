@@ -13,6 +13,8 @@ use serenity::prelude::Context;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
 
+use tokio::time::{sleep, Duration};
+
 use tracing::log::info;
 
 lazy_static! {
@@ -109,16 +111,16 @@ impl Game {
             support: [UserId(0); 2],
         }
     }
-    fn from(queue: &QueueManager, teams: Vec<Vec<&UserId>>, blue_winrate: f64) -> Game {
+    fn from(queue: &QueueManager, teams: Vec<Vec<UserId>>, blue_winrate: f64) -> Game {
         let mut game = Game::new(queue, blue_winrate);
         for (i, team) in teams.iter().enumerate() {
             for (j, player) in team.iter().enumerate() {
                 match j {
-                    0 => game.top[i] = *(*player),
-                    1 => game.jungle[i] = *(*player),
-                    2 => game.mid[i] = *(*player),
-                    3 => game.bot[i] = *(*player),
-                    4 => game.support[i] = *(*player),
+                    0 => game.top[i] = *player,
+                    1 => game.jungle[i] = *player,
+                    2 => game.mid[i] = *player,
+                    3 => game.bot[i] = *player,
+                    4 => game.support[i] = *player,
                     _ => panic!("Too many players in a team"),
                 }
             }
@@ -126,7 +128,7 @@ impl Game {
         game
     }
 
-    pub async fn display(&self, ctx: &Context, _guild_id: GuildId) -> (String, String) {
+    pub async fn display(&self, ctx: &Context, guild_id: GuildId) -> (String, String) {
         let teams = vec![
             [
                 self.top[0],
@@ -163,7 +165,7 @@ impl Game {
                     player.to_user(&ctx.http).await.unwrap().name
                 };
                 // let username = player.to_user(&ctx.http).await.unwrap().name;
-                // name = player.to_user(&ctx.http).await.unwrap().nick_in(&ctx.http, guild_id).await.unwrap_or_else(|| username);
+                // let name = player.to_user(&ctx.http).await.unwrap().nick_in(&ctx.http, guild_id).await.unwrap_or_else(|| username);
                 match i {
                     0 => tmp.push_str(&TOP_EMOJI.lock().unwrap()),
                     1 => tmp.push_str(&JG_EMOJI.lock().unwrap()),
@@ -242,7 +244,7 @@ impl QueueManager {
 
     pub fn queue_player(&mut self, discord_id: UserId, role: &str) -> Result<(), &str> {
         if !self.players.contains_key(&discord_id) {
-            return Err("Player not registered");
+            return Err("Player not registered.");
         }
         if let Some(p) = self.players.get_mut(&discord_id) {
             if p.queued.contains(&role.to_string()) {
@@ -252,7 +254,7 @@ impl QueueManager {
                 return Err("Player is already in queue for two roles");
             }
             let role = role.to_lowercase();
-            //Add more aliases for roles
+            //TODO Add more aliases for roles
             match role.as_str() {
                 "top" => {
                     p.queued.push(role.clone());
@@ -266,7 +268,7 @@ impl QueueManager {
                     p.queued.push(role.clone());
                     self.mid.push_back(discord_id);
                 }
-                "bot" | "adc" => {
+                "bot" | "adc" | "bottom" => {
                     p.queued.push(role.clone());
                     self.bot.push_back(discord_id);
                 }
@@ -288,23 +290,25 @@ impl QueueManager {
         let discord_id = &discord_id;
         if let Some(player) = self.players.get_mut(discord_id) {
             match role.as_str() {
+                //TODO add more aliases for roles
+                //FIXME doesn't check for aliases
                 "top" => {
                     self.top.retain(|player| player != discord_id);
                     player.queued.retain(|role| role != "top");
                 }
-                "jungle" => {
+                "jungle" | "jung" | "jg" | "jng" => {
                     self.jungle.retain(|player| player != discord_id);
-                    player.queued.retain(|role| role != "jungle");
+                    player.queued.retain(|role| {role != "jungle" ||  role != "jg"});
                 }
                 "mid" => {
                     self.mid.retain(|player| player != discord_id);
                     player.queued.retain(|role| role != "mid");
                 }
-                "bot" => {
+                "bot" | "adc" | "bottom" => {
                     self.bot.retain(|player| player != discord_id);
                     player.queued.retain(|role| role != "bot");
                 }
-                "support" => {
+                "support" | "sup" => {
                     self.support.retain(|player| player != discord_id);
                     player.queued.retain(|role| role != "support");
                 }
@@ -341,52 +345,72 @@ impl QueueManager {
         unique_players.len()
     }
 
-    pub async fn check_for_game(&mut self) -> Option<String> {
-        if self.top.len() >= 2
-            && self.jungle.len() >= 2
-            && self.mid.len() >= 2
-            && self.bot.len() >= 2
-            && self.support.len() >= 2
-        {
-            info!("Starting game");
-            //TODO this needs a lot of work, no O(n^2)
-            let mut final_team: Vec<Vec<&UserId>> = Vec::new();
-
-            let mut tmp_top: VecDeque<UserId> = VecDeque::new();
-            let mut tmp_jungle: VecDeque<UserId> = VecDeque::new();
-            let mut tmp_mid: VecDeque<UserId> = VecDeque::new();
-            let mut tmp_bot: VecDeque<UserId> = VecDeque::new();
-            let mut tmp_support: VecDeque<UserId> = VecDeque::new();
-            tmp_top.push_back(self.top.pop_front().unwrap());
-            tmp_top.push_back(self.top.pop_front().unwrap());
-            tmp_jungle.push_back(self.jungle.pop_front().unwrap());
-            tmp_jungle.push_back(self.jungle.pop_front().unwrap());
-            tmp_mid.push_back(self.mid.pop_front().unwrap());
-            tmp_mid.push_back(self.mid.pop_front().unwrap());
-            tmp_bot.push_back(self.bot.pop_front().unwrap());
-            tmp_bot.push_back(self.bot.pop_front().unwrap());
-            tmp_support.push_back(self.support.pop_front().unwrap());
-            tmp_support.push_back(self.support.pop_front().unwrap());
-
-            let mut team1_winrate = 0.0;
+    async fn find_game(&mut self) -> Game{
+        //TODO this needs a lot of work, no O(n^2)
+        let mut final_team: Vec<Vec<UserId>> = Vec::new();
+        let mut index = 0;
+        let mut team1_winrate = 0.0;
+        let mut tmp_top: VecDeque<UserId> = VecDeque::new();
+        let mut tmp_jungle: VecDeque<UserId> = VecDeque::new();
+        let mut tmp_mid: VecDeque<UserId> = VecDeque::new();
+        let mut tmp_bot: VecDeque<UserId> = VecDeque::new();
+        let mut tmp_support: VecDeque<UserId> = VecDeque::new();
+        while final_team.is_empty() {
+            while let Some(player) = self.top.pop_front() {
+                if tmp_top.len() < 1 + index {
+                    tmp_top.push_back(player);
+                } else {
+                    tmp_top.push_back(player);
+                    break;
+                }
+            }
+            while let Some(player) = self.jungle.pop_front() {
+                if tmp_jungle.len() < 1 + index {
+                    tmp_jungle.push_back(player);
+                } else {
+                    tmp_jungle.push_back(player);
+                    break;
+                }
+            }
+            while let Some(player) = self.mid.pop_front() {
+                if tmp_mid.len() < 1 + index {
+                    tmp_mid.push_back(player);
+                } else {
+                    tmp_mid.push_back(player);
+                    break;
+                }
+            }
+            while let Some(player) = self.bot.pop_front() {
+                if tmp_bot.len() < 1 + index {
+                    tmp_bot.push_back(player);
+                } else {
+                    tmp_bot.push_back(player);
+                    break;
+                }
+            }
+            while let Some(player) = self.support.pop_front() {
+                if tmp_support.len() < 1 + index {
+                    tmp_support.push_back(player);
+                } else {
+                    tmp_support.push_back(player);
+                    break;
+                }
+            }
             'outer: for (top, jng, mid, bot, sup) in iproduct!(
-                tmp_top.iter(),
-                tmp_jungle.iter(),
-                tmp_mid.iter(),
-                tmp_bot.iter(),
-                tmp_support.iter()
+                tmp_top.iter().cloned(),
+                tmp_jungle.iter().cloned(),
+                tmp_mid.iter().cloned(),
+                tmp_bot.iter().cloned(),
+                tmp_support.iter().cloned()
             ) {
                 for (top2, jng2, mid2, bot2, sup2) in iproduct!(
-                    tmp_top.iter(),
-                    tmp_jungle.iter(),
-                    tmp_mid.iter(),
-                    tmp_bot.iter(),
-                    tmp_support.iter()
+                    tmp_top.iter().cloned(),
+                    tmp_jungle.iter().cloned(),
+                    tmp_mid.iter().cloned(),
+                    tmp_bot.iter().cloned(),
+                    tmp_support.iter().cloned()
                 ) {
-                    /*
-                       Given a two lists of players, check that there are no duplicates in the lists.
-                    */
-                    //TODO this is a bit of a hack, but it works for now
+                    //TODO this is a hack, but it works for now
                     if top == top2
                         || top == jng2
                         || top == mid2
@@ -422,37 +446,113 @@ impl QueueManager {
                         || mid == bot
                         || mid == sup
                         || bot == sup
+                        || top2 == jng2
+                        || top2 == mid2
+                        || top2 == bot2
+                        || top2 == sup2
+                        || jng2 == mid2
+                        || jng2 == bot2
+                        || jng2 == sup2
+                        || mid2 == bot2
+                        || mid2 == sup2
+                        || bot2 == sup2
                     {
-                        continue 'outer;
+                        continue;
                     }
 
                     let team1 = vec![
-                        self.players.get(top).unwrap().rating.clone(),
-                        self.players.get(jng).unwrap().rating.clone(),
-                        self.players.get(mid).unwrap().rating.clone(),
-                        self.players.get(bot).unwrap().rating.clone(),
-                        self.players.get(sup).unwrap().rating.clone(),
+                        self.players.get(&top).unwrap().rating.clone(),
+                        self.players.get(&jng).unwrap().rating.clone(),
+                        self.players.get(&mid).unwrap().rating.clone(),
+                        self.players.get(&bot).unwrap().rating.clone(),
+                        self.players.get(&sup).unwrap().rating.clone(),
                     ];
                     let team2 = vec![
-                        self.players.get(top2).unwrap().rating.clone(),
-                        self.players.get(jng2).unwrap().rating.clone(),
-                        self.players.get(mid2).unwrap().rating.clone(),
-                        self.players.get(bot2).unwrap().rating.clone(),
-                        self.players.get(sup2).unwrap().rating.clone(),
+                        self.players.get(&top2).unwrap().rating.clone(),
+                        self.players.get(&jng2).unwrap().rating.clone(),
+                        self.players.get(&mid2).unwrap().rating.clone(),
+                        self.players.get(&bot2).unwrap().rating.clone(),
+                        self.players.get(&sup2).unwrap().rating.clone(),
                     ];
                     let teams = vec![team1, team2];
                     team1_winrate = predicte_win(&teams);
                     if team1_winrate > 0.45 && team1_winrate < 0.55 {
                         let team1 = vec![top, jng, mid, bot, sup];
-                        let team2 = vec![top2, jng2, mid2, bot2, sup2];
+                        let team2 = vec![top2, jng2,mid2, bot2, sup2];
                         final_team = vec![team1, team2];
                         break 'outer;
                     }
                 }
             }
-            //assuming valid game was found
-            //TODO Logic incase no game is found
-            let game = Game::from(self, final_team, team1_winrate);
+            if final_team.is_empty() {
+                while let Some(player) = tmp_top.pop_back() {
+                    self.top.push_front(player);
+                }
+                while let Some(player) = tmp_jungle.pop_back() {
+                    self.jungle.push_front(player);
+                }
+                while let Some(player) = tmp_mid.pop_back() {
+                    self.mid.push_front(player);
+                }
+                while let Some(player) = tmp_bot.pop_back() {
+                    self.bot.push_front(player);
+                }
+                while let Some(player) = tmp_support.pop_back() {
+                    self.support.push_front(player);
+                }
+                index += 1;
+            } else {
+                //TODO There is a better solution than adding all the players back and removing them, but cba to figure it out rn, probably should use a HashSet
+                while let Some(player) = tmp_top.pop_back() {
+                    self.top.push_front(player);
+                }
+                while let Some(player) = tmp_jungle.pop_back() {
+                    self.jungle.push_front(player);
+                }
+                while let Some(player) = tmp_mid.pop_back() {
+                    self.mid.push_front(player);
+                }
+                while let Some(player) = tmp_bot.pop_back() {
+                    self.bot.push_front(player);
+                }
+                while let Some(player) = tmp_support.pop_back() {
+                    self.support.push_front(player);
+                }
+                for (i, player) in final_team[0].iter().enumerate() {
+                    match i {
+                        0 => self.leave_queue(*player, "").unwrap(),
+                        1 => self.leave_queue(*player, "").unwrap(),
+                        2 => self.leave_queue(*player, "").unwrap(),
+                        3 => self.leave_queue(*player, "").unwrap(),
+                        4 => self.leave_queue(*player, "").unwrap(),
+                        _ => panic!("Invalid index"),
+                    };
+                }
+                for (i, player) in final_team[1].iter().enumerate() {
+                    match i {
+                        0 => self.leave_queue(*player, "").unwrap(),
+                        1 => self.leave_queue(*player, "").unwrap(),
+                        2 => self.leave_queue(*player, "").unwrap(),
+                        3 => self.leave_queue(*player, "").unwrap(),
+                        4 => self.leave_queue(*player, "").unwrap(),
+                        _ => panic!("Invalid index"),
+                    };
+                }
+                break;
+            }
+        }
+        Game::from(self, final_team, team1_winrate)
+    }
+
+    pub async fn check_for_game(&mut self) -> Option<String> {
+        if self.top.len() >= 2
+            && self.jungle.len() >= 2
+            && self.mid.len() >= 2
+            && self.bot.len() >= 2
+            && self.support.len() >= 2
+        {
+            info!("Starting game");
+            let game = self.find_game().await;
             self.tentative_games.push(game);
         } else {
             let mut missing_roles = Vec::new();
@@ -482,19 +582,19 @@ impl QueueManager {
         let mut output = String::new();
         output.push_str(&TOP_EMOJI.lock().unwrap());
         for player in self.top.iter() {
-            // if player == &0 || player == &1 || player == &2 || player == &3 || player == &4 || player == &5 || player == &6 || player == &7 || player == &8 || player == &9 {
-            //     name = format!("Unknown {}" ,player);
-            // } else {
-            //     name = player.to_user(&ctx.http).await.unwrap().name;
-            // }
-            let username = player.to_user(&ctx.http).await.unwrap().name;
-            let name: String = player
-                .to_user(&ctx.http)
-                .await
-                .unwrap()
-                .nick_in(&ctx.http, guild_id)
-                .await
-                .unwrap_or(username);
+            let name = if player == &0 || player == &1 || player == &2 || player == &3 || player == &4 || player == &5 || player == &6 || player == &7 || player == &8 || player == &9 {
+                format!("Unknown {}" ,player)
+            } else {
+                player.to_user(&ctx.http).await.unwrap().name
+            };
+            // let username = player.to_user(&ctx.http).await.unwrap().name;
+            // let name: String = player
+            //     .to_user(&ctx.http)
+            //     .await
+            //     .unwrap()
+            //     .nick_in(&ctx.http, guild_id)
+            //     .await
+            //     .unwrap_or(username);
             output.push_str(&name);
             output.push(' ');
         }
@@ -502,19 +602,19 @@ impl QueueManager {
 
         output.push_str(&JG_EMOJI.lock().unwrap());
         for player in self.jungle.iter() {
-            // if player == &0 || player == &1 || player == &2 || player == &3 || player == &4 || player == &5 || player == &6 || player == &7 || player == &8 || player == &9 {
-            //     name = format!("Unknown {}" ,player);
-            // } else {
-            //     name = player.to_user(&ctx.http).await.unwrap().name;
-            // }
-            let username = player.to_user(&ctx.http).await.unwrap().name;
-            let name = player
-                .to_user(&ctx.http)
-                .await
-                .unwrap()
-                .nick_in(&ctx.http, guild_id)
-                .await
-                .unwrap_or(username);
+            let name = if player == &0 || player == &1 || player == &2 || player == &3 || player == &4 || player == &5 || player == &6 || player == &7 || player == &8 || player == &9 {
+                format!("Unknown {}" ,player)
+            } else {
+                player.to_user(&ctx.http).await.unwrap().name
+            };
+            // let username = player.to_user(&ctx.http).await.unwrap().name;
+            // let name = player
+            //     .to_user(&ctx.http)
+            //     .await
+            //     .unwrap()
+            //     .nick_in(&ctx.http, guild_id)
+            //     .await
+            //     .unwrap_or(username);
             output.push_str(&name);
             output.push(' ');
         }
@@ -522,19 +622,19 @@ impl QueueManager {
 
         output.push_str(&MID_EMOJI.lock().unwrap());
         for player in self.mid.iter() {
-            // if player == &0 || player == &1 || player == &2 || player == &3 || player == &4 || player == &5 || player == &6 || player == &7 || player == &8 || player == &9 {
-            //     name = format!("Unknown {}" ,player);
-            // } else {
-            //     name = player.to_user(&ctx.http).await.unwrap().name;
-            // }
-            let username = player.to_user(&ctx.http).await.unwrap().name;
-            let name = player
-                .to_user(&ctx.http)
-                .await
-                .unwrap()
-                .nick_in(&ctx.http, guild_id)
-                .await
-                .unwrap_or(username);
+            let name = if player == &0 || player == &1 || player == &2 || player == &3 || player == &4 || player == &5 || player == &6 || player == &7 || player == &8 || player == &9 {
+                format!("Unknown {}" ,player)
+            } else {
+                player.to_user(&ctx.http).await.unwrap().name
+            };
+            // let username = player.to_user(&ctx.http).await.unwrap().name;
+            // let name = player
+            //     .to_user(&ctx.http)
+            //     .await
+            //     .unwrap()
+            //     .nick_in(&ctx.http, guild_id)
+            //     .await
+            //     .unwrap_or(username);
             output.push_str(&name);
             output.push(' ');
         }
@@ -542,19 +642,19 @@ impl QueueManager {
 
         output.push_str(&BOT_EMOJI.lock().unwrap());
         for player in self.bot.iter() {
-            // if player == &0 || player == &1 || player == &2 || player == &3 || player == &4 || player == &5 || player == &6 || player == &7 || player == &8 || player == &9 {
-            //     name = format!("Unknown {}" ,player);
-            // } else {
-            //     name = player.to_user(&ctx.http).await.unwrap().name;
-            // }
-            let username = player.to_user(&ctx.http).await.unwrap().name;
-            let name = player
-                .to_user(&ctx.http)
-                .await
-                .unwrap()
-                .nick_in(&ctx.http, guild_id)
-                .await
-                .unwrap_or(username);
+            let name = if player == &0 || player == &1 || player == &2 || player == &3 || player == &4 || player == &5 || player == &6 || player == &7 || player == &8 || player == &9 {
+                format!("Unknown {}" ,player)
+            } else {
+                player.to_user(&ctx.http).await.unwrap().name
+            };
+            // let username = player.to_user(&ctx.http).await.unwrap().name;
+            // let name = player
+            //     .to_user(&ctx.http)
+            //     .await
+            //     .unwrap()
+            //     .nick_in(&ctx.http, guild_id)
+            //     .await
+            //     .unwrap_or(username);
             output.push_str(&name);
             output.push(' ');
         }
@@ -562,19 +662,19 @@ impl QueueManager {
 
         output.push_str(&SUP_EMOJI.lock().unwrap());
         for player in self.support.iter() {
-            // if player == &0 || player == &1 || player == &2 || player == &3 || player == &4 || player == &5 || player == &6 || player == &7 || player == &8 || player == &9 {
-            //     name = format!("Unknown {}" ,player);
-            // } else {
-            //     name = player.to_user(&ctx.http).await.unwrap().name;
-            // }
-            let username = player.to_user(&ctx.http).await.unwrap().name;
-            let name = player
-                .to_user(&ctx.http)
-                .await
-                .unwrap()
-                .nick_in(&ctx.http, guild_id)
-                .await
-                .unwrap_or(username);
+            let name = if player == &0 || player == &1 || player == &2 || player == &3 || player == &4 || player == &5 || player == &6 || player == &7 || player == &8 || player == &9 {
+                format!("Unknown {}" ,player)
+            } else {
+                player.to_user(&ctx.http).await.unwrap().name
+            };
+            // let username = player.to_user(&ctx.http).await.unwrap().name;
+            // let name = player
+                // .to_user(&ctx.http)
+                // .await
+                // .unwrap()
+                // .nick_in(&ctx.http, guild_id)
+                // .await
+                // .unwrap_or(username);
             output.push_str(&name);
             output.push(' ');
         }

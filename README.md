@@ -9,6 +9,13 @@
 
 4. Create teams based on queued players - Done
 5. Allow players to accept and decline matches. - Here
+   1. Players to react to message
+   2. Once accepted change embed
+   3. save the game to the database
+   4. wait for a player to use .won command
+   5. 6+ react then the game is saved
+   6. update ranking and database
+
 6. Create an Elo system for better matchmaking - Done
 7. QoL Changes
    1. Buttons for queuing up alongside the commands
