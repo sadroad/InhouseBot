@@ -52,3 +52,18 @@ pub struct NewPlayerRatings {
     pub mu: f64,
     pub sigma: f64
 }
+
+#[derive(Queryable)]
+pub struct GameRoles {
+    pub id: i32,
+    pub discord_id: i64,
+    pub game_id: i32,
+    pub role: String,
+    pub blue_side: bool
+}
+
+#[derive(Queryable)]
+pub struct Games {
+    pub id: i32,
+    pub players: Vec<i64>
+}

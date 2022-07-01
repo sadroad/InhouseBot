@@ -17,9 +17,6 @@ use crate::lib::inhouse::MID_EMOJI;
 use crate::lib::inhouse::BOT_EMOJI;
 use crate::lib::inhouse::SUP_EMOJI;
 
-use crate::lib::inhouse::Player;
-use crate::lib::openskill::lib::Rating;
-
 use tracing::log::info;
 use rand::Rng;
 
@@ -75,7 +72,7 @@ async fn mark (ctx: &Context, msg: &Message) -> CommandResult {
                     sleep(Duration::from_secs(3)).await;
                     response.delete(&ctx.http).await?;
                     clear_channel(&ctx.http, msg.channel_id).await;
-                    display(ctx, msg).await;
+                    display(ctx, msg.guild_id.unwrap()).await;
                 } else {
                     let response = msg.reply_ping(&ctx.http, "Cancelled.").await?;
                     sleep(Duration::from_secs(3)).await;
@@ -135,9 +132,11 @@ async fn unmark (ctx: &Context, msg: &Message) -> CommandResult {
 }
 
 pub async fn clear_channel( ctx: &Arc<Http>, channel: ChannelId) {
-    let messages = channel.messages(&ctx, |m| m).await.unwrap();
-    for message in messages {
-        message.delete(&ctx).await.unwrap();
+    if channel != ChannelId(0) {
+        let messages = channel.messages(&ctx, |m| m).await.unwrap();
+        for message in messages {
+            message.delete(&ctx).await.unwrap();
+        }
     }
 }
 
@@ -178,32 +177,35 @@ async fn role_emojis(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
 
 #[command]
 async fn test(ctx: &Context, msg: &Message) -> CommandResult{
-    let mut data = ctx.data.write().await;
-    let mut queue = data.get_mut::<QueueManager>().unwrap();
-    let mut queue = queue.lock().await;
-    //register 10 fake players
-    info!("Registering 10 fake players");
-    for i in 0..10 {
-        //random range
-        let mut rng = rand::thread_rng();
-        let mut rng = rng.gen_range(15.0..=45.0);
-        queue.register_player(UserId(i), vec![], rng);
+    {
+        let mut data = ctx.data.write().await;
+        let queue = data.get_mut::<QueueManager>().unwrap();
+        let mut queue = queue.lock().await;
+        //register 10 fake players
+        info!("Registering 10 fake players");
+        for i in 0..10 {
+            //random range
+            let mut rng = rand::thread_rng();
+            let rng = rng.gen_range(15.0..=45.0);
+            queue.register_player(UserId(i), vec![], rng);
+        }
+        info!("Done. Adding to queue");
+        queue.queue_player(UserId(0), &String::from("top")).unwrap();
+        queue.queue_player(UserId(1), &String::from("top")).unwrap();
+        queue.queue_player(UserId(2), &String::from("jng")).unwrap();
+        queue.queue_player(UserId(3), &String::from("jng")).unwrap();
+        queue.queue_player(UserId(4), &String::from("mid")).unwrap();
+        queue.queue_player(UserId(5), &String::from("mid")).unwrap();
+        queue.queue_player(UserId(6), &String::from("bot")).unwrap();
+        queue.queue_player(UserId(7), &String::from("bot")).unwrap();
+        queue.queue_player(UserId(8), &String::from("sup")).unwrap();
+        queue.queue_player(UserId(9), &String::from("sup")).unwrap();
+        info!("Done.");
+        let response = msg.reply_ping(&ctx.http, "Test complete.").await?;
+        sleep(Duration::from_secs(3)).await;
+        response.delete(&ctx.http).await?;
     }
-    info!("Done. Adding to queue");
-    queue.queue_player(UserId(0), &String::from("top")).unwrap();
-    queue.queue_player(UserId(1), &String::from("top")).unwrap();
-    queue.queue_player(UserId(2), &String::from("jng")).unwrap();
-    queue.queue_player(UserId(3), &String::from("jng")).unwrap();
-    queue.queue_player(UserId(4), &String::from("mid")).unwrap();
-    queue.queue_player(UserId(5), &String::from("mid")).unwrap();
-    queue.queue_player(UserId(6), &String::from("bot")).unwrap();
-    queue.queue_player(UserId(7), &String::from("bot")).unwrap();
-    queue.queue_player(UserId(8), &String::from("sup")).unwrap();
-    queue.queue_player(UserId(9), &String::from("sup")).unwrap();
-    info!("Done.");
-    let response = msg.reply_ping(&ctx.http, "Test complete.").await?;
-    sleep(Duration::from_secs(3)).await;
-    response.delete(&ctx.http).await?;
+    display(&ctx, msg.guild_id.unwrap()).await;
     msg.delete(&ctx.http).await?;
     Ok(())
 }

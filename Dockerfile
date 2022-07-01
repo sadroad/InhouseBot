@@ -1,5 +1,5 @@
 
-FROM rust:1.61 AS builder
+FROM rust:1.62 AS builder
 RUN USER=root cargo new --bin bot
 WORKDIR /bot
 COPY ./Cargo.lock ./Cargo.lock

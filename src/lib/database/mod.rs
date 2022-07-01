@@ -16,7 +16,7 @@ use serenity::http::Http;
 
 use std::sync::Arc;
 
-use self::models::{NewPlayer, NewPlayerRatings,DbPlayer, PlayerRatings, NewServerInformation, ServerInformation};
+use self::models::*;
 
 pub type PgPool = Pool<ConnectionManager<PgConnection>>;
 
@@ -141,4 +141,18 @@ pub fn update_queue_channel(conn: &PgConnection, channel: &ChannelId) {
         .set(server_information::queue_channel.eq(channel.0 as i64))
         .execute(conn)
         .expect("Error updating queue channel");
+}
+
+pub fn next_game_id(conn: &PgConnection) -> i32 {
+    use schema::games;
+
+    let games = games::table
+        .load::<Games>(conn)
+        .expect("Error loading games");
+
+    if games.is_empty() {
+        return 0;
+    } else {
+        return games.last().unwrap().id + 1;
+    }
 }

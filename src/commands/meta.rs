@@ -7,6 +7,8 @@ use crate::lib::inhouse::get_msl_points;
 use riven::consts::PlatformRoute::NA1;
 use riven::RiotApi;
 
+use tracing::log::info;
+
 #[command]
 pub async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
     msg.channel_id.say(&ctx.http, "Pong!").await?;
@@ -15,7 +17,6 @@ pub async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
 
 #[command]
 pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
-    //FIXME register in the queue doesn't send a DM
     let author = &msg.author;
     {
         let data = ctx.data.read().await;
@@ -31,7 +32,7 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
         }
     }
     dbg!(&author.name);
-    msg.delete(&ctx.http).await?;
+    info!("did thi");
     let dm = author
         .direct_message(
             &ctx.http,
@@ -46,9 +47,10 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
         .await
     {
         accounts = response.content.to_string();
-        // dm.delete(&ctx.http).await?;
+        dm.delete(&ctx.http).await?;
     } else {
         dm.channel_id.say(&ctx.http, "No response received. Cancelling registration.").await?;
+        dm.delete(&ctx.http).await?;
         return Ok(());
     }
     let accounts = accounts.split(',').map(|x| x.trim().to_string()).collect::<Vec<String>>();

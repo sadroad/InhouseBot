@@ -24,6 +24,7 @@ use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
 use serenity::model::id::{ChannelId,MessageId};
 use serenity::prelude::*;
+use tokio::time::{sleep, Duration};
 
 use lazy_static::lazy_static;
 
@@ -34,6 +35,7 @@ lazy_static!{
     pub static ref DBCONNECTION: Values = {
         Values { db_connection: establish_connection() }
     };
+    pub static ref LOADING_EMOJI: String = env::var("LOADING_EMOJI").unwrap_or_else(|_| "🔍".to_string());
 }
 
 pub struct ShardManagerContainer;
@@ -73,8 +75,12 @@ struct Handler;
 
 #[async_trait]
 impl EventHandler for Handler {
-    async fn ready(&self, _ctx: Context, ready: Ready) {
+    async fn ready(&self, ctx: Context, ready: Ready) {
         info!("Connected as {}", ready.user.name);
+        if ready.guilds.len() > 0 {
+            display(&ctx, ready.guilds[0].id).await;
+        }
+
     }
 
     async fn message(&self, ctx: Context, msg: Message) {
@@ -99,7 +105,9 @@ impl EventHandler for Handler {
                         return;
                     },
                     _ => {
-                        msg.reply_mention(&ctx.http, "Don't use that command in the queue channel :P").await.unwrap();
+                        let resp = msg.reply_mention(&ctx.http, "Don't use that command in the queue channel :P").await.unwrap();
+                        sleep(Duration::from_secs(1)).await;
+                        resp.delete(&ctx.http).await.unwrap();
                         msg.delete(&ctx.http).await.unwrap();
                     }
                 }
