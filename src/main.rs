@@ -7,11 +7,11 @@ extern crate diesel_migrations;
 mod commands;
 mod lib;
 
+use crate::commands::admin::*;
 use crate::commands::meta::*;
 use crate::commands::queue::*;
-use crate::commands::admin::*;
-use crate::lib::inhouse::*;
 use crate::lib::database::*;
+use crate::lib::inhouse::*;
 
 use std::env;
 use std::sync::Arc;
@@ -22,7 +22,7 @@ use serenity::framework::standard::macros::group;
 use serenity::framework::StandardFramework;
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
-use serenity::model::id::{ChannelId,MessageId};
+use serenity::model::id::{ChannelId, MessageId};
 use serenity::prelude::*;
 use tokio::time::{sleep, Duration};
 
@@ -30,12 +30,14 @@ use lazy_static::lazy_static;
 
 use tracing::{error, info};
 
-
-lazy_static!{
+lazy_static! {
     pub static ref DBCONNECTION: Values = {
-        Values { db_connection: establish_connection() }
+        Values {
+            db_connection: establish_connection(),
+        }
     };
-    pub static ref LOADING_EMOJI: String = env::var("LOADING_EMOJI").unwrap_or_else(|_| "🔍".to_string());
+    pub static ref LOADING_EMOJI: String =
+        env::var("LOADING_EMOJI").unwrap_or_else(|_| "🔍".to_string());
 }
 
 pub struct ShardManagerContainer;
@@ -77,19 +79,21 @@ struct Handler;
 impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, ready: Ready) {
         info!("Connected as {}", ready.user.name);
-        if ready.guilds.len() > 0 {
+        if !ready.guilds.is_empty() {
             display(&ctx, ready.guilds[0].id).await;
         }
-
     }
 
     async fn message(&self, ctx: Context, msg: Message) {
-        info!("Received a message from {}: {}", msg.author.name, msg.content);
+        info!(
+            "Received a message from {}: {}",
+            msg.author.name, msg.content
+        );
         let channel_id;
         let prefix: String;
         {
             let data = ctx.data.read().await;
-            channel_id = data.get::<QueueChannel>().unwrap().clone();
+            channel_id = *data.get::<QueueChannel>().unwrap();
             prefix = data.get::<Prefix>().unwrap().clone();
         }
         if msg.channel_id == channel_id && !msg.author.bot {
@@ -100,12 +104,18 @@ impl EventHandler for Handler {
                 match command {
                     "unmark" => {
                         return;
-                    },
+                    }
                     "mark" => {
                         return;
-                    },
+                    }
                     _ => {
-                        let resp = msg.reply_mention(&ctx.http, "Don't use that command in the queue channel :P").await.unwrap();
+                        let resp = msg
+                            .reply_mention(
+                                &ctx.http,
+                                "Don't use that command in the queue channel :P",
+                            )
+                            .await
+                            .unwrap();
                         sleep(Duration::from_secs(1)).await;
                         resp.delete(&ctx.http).await.unwrap();
                         msg.delete(&ctx.http).await.unwrap();
@@ -119,20 +129,21 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(ping,queue,leave,register)]
+#[commands(ping, queue, leave, register)]
 struct General;
 
 #[group]
-#[commands(mark,unmark,role_emojis,test)]
+#[commands(mark, unmark, role_emojis, test)]
 #[prefix("admin")]
 #[required_permissions("ADMINISTRATOR")]
 struct Admin;
 
 //Ignore the following error, rust-analyzer is causing a false positive
 #[tokio::main]
-async fn main() {   
+async fn main() {
     tracing_subscriber::fmt::init();
-    let token = env::var("DISCORD_TOKEN").expect("Expected to find a discord token in the environment");
+    let token =
+        env::var("DISCORD_TOKEN").expect("Expected to find a discord token in the environment");
 
     let prefix = env::var("PREFIX").unwrap_or_else(|_| "!".to_string());
 
@@ -145,7 +156,9 @@ async fn main() {
         .group(&GENERAL_GROUP)
         .group(&ADMIN_GROUP);
 
-    let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT | GatewayIntents::DIRECT_MESSAGES;
+    let intents = GatewayIntents::non_privileged()
+        | GatewayIntents::MESSAGE_CONTENT
+        | GatewayIntents::DIRECT_MESSAGES;
 
     let mut client = Client::builder(&token, intents)
         .framework(framework)
@@ -153,7 +166,11 @@ async fn main() {
         .await
         .expect("Error creating client");
 
-    let queue_channel = init_server_info(&DBCONNECTION.db_connection.get().unwrap(), &client.cache_and_http.http).await;
+    let queue_channel = init_server_info(
+        &DBCONNECTION.db_connection.get().unwrap(),
+        &client.cache_and_http.http,
+    )
+    .await;
 
     {
         let mut data = client.data.write().await;
@@ -168,7 +185,9 @@ async fn main() {
     let shard_manager = client.shard_manager.clone();
 
     tokio::spawn(async move {
-        tokio::signal::ctrl_c().await.expect("Error awaiting CTRL+C");
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Error awaiting CTRL+C");
         info!("CTRL+C received; shutting down...");
         shard_manager.lock().await.shutdown_all().await;
     });

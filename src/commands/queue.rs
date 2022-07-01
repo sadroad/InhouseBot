@@ -1,11 +1,11 @@
-use crate::{Prefix, QueueEmbed,QueueChannel};
 use crate::lib::inhouse::*;
+use crate::{Prefix, QueueChannel, QueueEmbed};
 
-use serenity::framework::standard::{Args, CommandResult, macros::command};
-use tokio::time::{sleep, Duration};
-use serenity::model::id::{MessageId};
+use serenity::framework::standard::{macros::command, Args, CommandResult};
+use serenity::model::id::MessageId;
 use serenity::model::prelude::*;
 use serenity::prelude::*;
+use tokio::time::{sleep, Duration};
 
 use tracing::log::info;
 
@@ -18,7 +18,9 @@ pub async fn queue(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
                 let data = ctx.data.read().await;
                 prefix = data.get::<Prefix>().unwrap().clone();
             }
-            let response = msg.reply_mention(&ctx.http, &format!("Usage: {}queue <role>", prefix)).await?;
+            let response = msg
+                .reply_mention(&ctx.http, &format!("Usage: {}queue <role>", prefix))
+                .await?;
             sleep(Duration::from_secs(3)).await;
             response.delete(&ctx.http).await?;
         } else {
@@ -29,13 +31,15 @@ pub async fn queue(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
                 let mut queue = queue.lock().await;
                 let player = msg.author.id;
                 if let Err(e) = queue.queue_player(player, &role) {
-                    let response = msg.reply_mention(&ctx.http, &format!("Error: {}", e)).await?;
+                    let response = msg
+                        .reply_mention(&ctx.http, &format!("Error: {}", e))
+                        .await?;
                     sleep(Duration::from_secs(3)).await;
                     response.delete(&ctx.http).await?;
                 }
             }
-            display(ctx,msg.guild_id.unwrap()).await;
-        }    
+            display(ctx, msg.guild_id.unwrap()).await;
+        }
     }
     msg.delete(&ctx.http).await?;
     Ok(())
@@ -50,7 +54,9 @@ pub async fn leave(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
                 let data = ctx.data.read().await;
                 prefix = data.get::<Prefix>().unwrap().clone();
             }
-            let response = msg.reply_mention(&ctx.http, &format!("Usage: {}leave <role?>", prefix)).await?;
+            let response = msg
+                .reply_mention(&ctx.http, &format!("Usage: {}leave <role?>", prefix))
+                .await?;
             sleep(Duration::from_secs(3)).await;
             response.delete(&ctx.http).await?;
         } else {
@@ -64,7 +70,9 @@ pub async fn leave(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
                 let queue = data.get::<QueueManager>().unwrap();
                 let mut queue = queue.lock().await;
                 if let Err(e) = queue.leave_queue(msg.author.id, &role) {
-                    let response = msg.reply_mention(&ctx.http, &format!("Error: {}", e)).await?;
+                    let response = msg
+                        .reply_mention(&ctx.http, &format!("Error: {}", e))
+                        .await?;
                     sleep(Duration::from_secs(3)).await;
                     response.delete(&ctx.http).await?;
                 }
@@ -75,7 +83,7 @@ pub async fn leave(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
     Ok(())
 }
 
-pub async fn display(ctx: &Context, guild_id: GuildId){
+pub async fn display(ctx: &Context, guild_id: GuildId) {
     info!("Dispalyed");
     let prefix;
     let body;
@@ -86,13 +94,13 @@ pub async fn display(ctx: &Context, guild_id: GuildId){
         let data = ctx.data.read().await;
         let queue = data.get::<QueueManager>().unwrap();
         let mut queue = queue.lock().await;
-        queue_channel = data.get::<QueueChannel>().unwrap().clone();
-        if let Some(missing) = queue.check_for_game().await{
+        queue_channel = *data.get::<QueueChannel>().unwrap();
+        if let Some(missing) = queue.check_for_game().await {
             missing_roles = missing;
         } else {
             missing_roles = String::from("A test string");
         }
-        body = queue.display(ctx,guild_id).await;
+        body = queue.display(ctx, guild_id).await;
         num_players = queue.number_of_unique_players().await;
         prefix = data.get::<Prefix>().unwrap().clone();
     }
@@ -111,7 +119,7 @@ pub async fn display(ctx: &Context, guild_id: GuildId){
                 }).await.unwrap();
                 let response = response.id;
                 *queue = response;
-            } else if missing_roles != String::from("A test string") {
+            } else if missing_roles != *"A test string" {
                 queue_channel
                 .edit_message(&ctx.http, *queue, |m| {
                     m.embed(|e| {
@@ -134,7 +142,6 @@ pub async fn display(ctx: &Context, guild_id: GuildId){
         }
     }
     info!("Done");
-    
 }
 
 async fn show_games(ctx: &Context, guild_id: GuildId) {
@@ -144,9 +151,9 @@ async fn show_games(ctx: &Context, guild_id: GuildId) {
         let data = ctx.data.read().await;
         let queue = data.get::<QueueManager>().unwrap().lock().await;
         games = queue.tentative_games.clone();
-        queue_channel = data.get::<QueueChannel>().unwrap().clone();
+        queue_channel = *data.get::<QueueChannel>().unwrap();
     }
-    if games.len() > 0 {
+    if !games.is_empty() {
         info!("Sending message");
         for mut game in games {
             if game.displayed {
@@ -166,18 +173,17 @@ async fn show_games(ctx: &Context, guild_id: GuildId) {
                 game.message_id = response.id;
             } else {
                 queue_channel
-                .edit_message(&ctx.http, game.message_id, |m| {
-                    m.embed(|e| {
-                        e.field("BLUE", "test", true)
-                        .field("RED", "te", true)
+                    .edit_message(&ctx.http, game.message_id, |m| {
+                        m.embed(|e| e.field("BLUE", "test", true).field("RED", "te", true))
                     })
-                }).await.unwrap();
+                    .await
+                    .unwrap();
             }
         }
     }
 }
 
-async fn check_queue_channel(ctx: &Context, msg: &Message) -> bool{
+async fn check_queue_channel(ctx: &Context, msg: &Message) -> bool {
     {
         let data = ctx.data.read().await;
         let channel_id = data.get::<QueueChannel>().unwrap();
@@ -185,5 +191,5 @@ async fn check_queue_channel(ctx: &Context, msg: &Message) -> bool{
             return false;
         }
     }
-    return true;
+    true
 }

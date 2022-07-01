@@ -1,18 +1,18 @@
 pub mod models;
 pub mod schema;
 
-use diesel::r2d2::{ConnectionManager, Pool};
 use diesel::prelude::*;
+use diesel::r2d2::{ConnectionManager, Pool};
 use std::env;
 
-use diesel_migrations::{embed_migrations};
+use diesel_migrations::embed_migrations;
 
 use crate::commands::admin::clear_channel;
 
-use super::inhouse::{Player,TOP_EMOJI,JG_EMOJI,MID_EMOJI,BOT_EMOJI,SUP_EMOJI};
+use super::inhouse::{Player, BOT_EMOJI, JG_EMOJI, MID_EMOJI, SUP_EMOJI, TOP_EMOJI};
 use super::openskill::lib::Rating;
-use serenity::model::id::{UserId, ChannelId};
 use serenity::http::Http;
+use serenity::model::id::{ChannelId, UserId};
 
 use std::sync::Arc;
 
@@ -25,7 +25,8 @@ pub struct Values {
 }
 embed_migrations!();
 pub fn establish_connection() -> PgPool {
-    let database_url = env::var("DATABASE_URL").expect("Expected to find a database url in the environment");
+    let database_url =
+        env::var("DATABASE_URL").expect("Expected to find a database url in the environment");
     let manager = ConnectionManager::<PgConnection>::new(database_url);
     let pool = Pool::new(manager).expect("Failed to create pool.");
     let conn = pool.get().expect("Failed to get connection from pool.");
@@ -34,7 +35,7 @@ pub fn establish_connection() -> PgPool {
 }
 
 pub fn save_player(conn: &PgConnection, discord_id: &UserId, player_info: &Player) {
-    use schema::{player,player_ratings};
+    use schema::{player, player_ratings};
 
     let new_player = NewPlayer {
         discord_id: *discord_id.as_u64() as i64,
@@ -58,15 +59,14 @@ pub fn save_player(conn: &PgConnection, discord_id: &UserId, player_info: &Playe
         .expect("Error saving new player ratings");
 }
 
-pub fn get_players(conn: &PgConnection) -> Vec<(UserId,Player)> {
-    use schema::{player,player_ratings};
+pub fn get_players(conn: &PgConnection) -> Vec<(UserId, Player)> {
+    use schema::{player, player_ratings};
 
     let players = player::table
         .load::<DbPlayer>(conn)
         .expect("Error loading players");
-    
 
-    let mut return_players:Vec<(UserId,Player)> = Vec::new();
+    let mut return_players: Vec<(UserId, Player)> = Vec::new();
     for player in players {
         let player_ratings = player_ratings::table
             .filter(player_ratings::discord_id.eq(player.discord_id))
@@ -76,9 +76,9 @@ pub fn get_players(conn: &PgConnection) -> Vec<(UserId,Player)> {
         let player_info = Player {
             riot_accounts: player.accounts.clone(),
             queued: Vec::new(),
-            rating: Rating::from(discord_id,player_ratings.mu, player_ratings.sigma),
+            rating: Rating::from(discord_id, player_ratings.mu, player_ratings.sigma),
         };
-        return_players.push((discord_id,player_info));
+        return_players.push((discord_id, player_info));
     }
     return_players
 }
@@ -119,7 +119,7 @@ pub async fn init_server_info(conn: &PgConnection, ctx: &Arc<Http>) -> ChannelId
     }
 }
 
-pub fn update_emoji(conn: &PgConnection, emojis: [&str;5]) {
+pub fn update_emoji(conn: &PgConnection, emojis: [&str; 5]) {
     use schema::server_information;
 
     diesel::update(server_information::table.find(1))
@@ -151,7 +151,7 @@ pub fn next_game_id(conn: &PgConnection) -> i32 {
         .expect("Error loading games");
 
     if games.is_empty() {
-        return 0;
+        0
     } else {
         return games.last().unwrap().id + 1;
     }

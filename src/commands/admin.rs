@@ -1,37 +1,36 @@
 use crate::lib::inhouse::QueueManager;
-use crate::{QueueChannel, Prefix, QueueEmbed};
+use crate::{Prefix, QueueChannel, QueueEmbed};
 
 use super::queue::display;
 
-use serenity::framework::standard::{Args, CommandResult, macros::command};
-use tokio::time::{sleep, Duration};
+use serenity::framework::standard::{macros::command, Args, CommandResult};
+use serenity::http::Http;
 use serenity::model::prelude::*;
 use serenity::prelude::*;
-use serenity::http::Http;
+use tokio::time::{sleep, Duration};
 
 use std::sync::Arc;
 
-use crate::lib::inhouse::TOP_EMOJI;
+use crate::lib::inhouse::BOT_EMOJI;
 use crate::lib::inhouse::JG_EMOJI;
 use crate::lib::inhouse::MID_EMOJI;
-use crate::lib::inhouse::BOT_EMOJI;
 use crate::lib::inhouse::SUP_EMOJI;
+use crate::lib::inhouse::TOP_EMOJI;
 
-use tracing::log::info;
 use rand::Rng;
+use tracing::log::info;
 
-use crate::lib::database::{update_emoji,update_queue_channel};
+use crate::lib::database::{update_emoji, update_queue_channel};
 use crate::DBCONNECTION;
-
 
 // TODO Add support for marking more channels as other types of channels (e.g. log channels) or for marking multiple queue channels for different mmr ranges
 #[command]
-async fn mark (ctx: &Context, msg: &Message) -> CommandResult {
+async fn mark(ctx: &Context, msg: &Message) -> CommandResult {
     //TODO Add ability to mark command channel where only bot commands will be registered
     let channel_id;
     {
         let data = ctx.data.read().await;
-        channel_id = data.get::<QueueChannel>().unwrap().clone();
+        channel_id = *data.get::<QueueChannel>().unwrap();
     }
     if msg.channel_id != channel_id {
         if channel_id != ChannelId(0) {
@@ -40,7 +39,15 @@ async fn mark (ctx: &Context, msg: &Message) -> CommandResult {
                 let data = ctx.data.read().await;
                 prefix = data.get::<Prefix>().unwrap().clone();
             }
-            let response = msg.reply_ping(&ctx.http, &format!("You must first unmark the prior queue channel. Use {}admin unmark", prefix)).await?;
+            let response = msg
+                .reply_ping(
+                    &ctx.http,
+                    &format!(
+                        "You must first unmark the prior queue channel. Use {}admin unmark",
+                        prefix
+                    ),
+                )
+                .await?;
             sleep(Duration::from_secs(3)).await;
             response.delete(&ctx.http).await?;
         } else {
@@ -79,7 +86,9 @@ async fn mark (ctx: &Context, msg: &Message) -> CommandResult {
                     response.delete(&ctx.http).await?;
                 }
             } else {
-                let response = msg.reply_ping(&ctx.http, "Timed out waiting for reaction.").await?;
+                let response = msg
+                    .reply_ping(&ctx.http, "Timed out waiting for reaction.")
+                    .await?;
                 sleep(Duration::from_secs(3)).await;
                 response.delete(&ctx.http).await?;
             }
@@ -91,11 +100,11 @@ async fn mark (ctx: &Context, msg: &Message) -> CommandResult {
 }
 
 #[command]
-async fn unmark (ctx: &Context, msg: &Message) -> CommandResult {
+async fn unmark(ctx: &Context, msg: &Message) -> CommandResult {
     let channel_id;
     {
         let data = ctx.data.read().await;
-        channel_id = data.get::<QueueChannel>().unwrap().clone();
+        channel_id = *data.get::<QueueChannel>().unwrap();
     }
     if channel_id != ChannelId(0) {
         if msg.channel_id != channel_id {
@@ -104,7 +113,15 @@ async fn unmark (ctx: &Context, msg: &Message) -> CommandResult {
                 let data = ctx.data.read().await;
                 prefix = data.get::<Prefix>().unwrap().clone();
             }
-            let response = msg.reply_ping(&ctx.http, &format!("You must first mark the prior queue channel. Use {}admin mark", prefix)).await?;
+            let response = msg
+                .reply_ping(
+                    &ctx.http,
+                    &format!(
+                        "You must first mark the prior queue channel. Use {}admin mark",
+                        prefix
+                    ),
+                )
+                .await?;
             sleep(Duration::from_secs(3)).await;
             response.delete(&ctx.http).await?;
         } else {
@@ -123,7 +140,9 @@ async fn unmark (ctx: &Context, msg: &Message) -> CommandResult {
             clear_channel(&ctx.http, msg.channel_id).await;
         }
     } else {
-        let response = msg.reply_ping(&ctx.http, "No queue channel marked.").await?;
+        let response = msg
+            .reply_ping(&ctx.http, "No queue channel marked.")
+            .await?;
         sleep(Duration::from_secs(3)).await;
         response.delete(&ctx.http).await?;
     }
@@ -131,7 +150,7 @@ async fn unmark (ctx: &Context, msg: &Message) -> CommandResult {
     Ok(())
 }
 
-pub async fn clear_channel( ctx: &Arc<Http>, channel: ChannelId) {
+pub async fn clear_channel(ctx: &Arc<Http>, channel: ChannelId) {
     if channel != ChannelId(0) {
         let messages = channel.messages(&ctx, |m| m).await.unwrap();
         for message in messages {
@@ -154,20 +173,22 @@ async fn role_emojis(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
         response.delete(&ctx.http).await?;
     } else {
         let top = args.single::<String>().unwrap() + " ";
-        *TOP_EMOJI.lock().unwrap() = format!("{} ",top);
+        *TOP_EMOJI.lock().unwrap() = format!("{} ", top);
         let jg = args.single::<String>().unwrap() + " ";
-        *JG_EMOJI.lock().unwrap() = format!("{} ",jg);
+        *JG_EMOJI.lock().unwrap() = format!("{} ", jg);
         let mid = args.single::<String>().unwrap() + " ";
-        *MID_EMOJI.lock().unwrap() = format!("{} ",mid);
+        *MID_EMOJI.lock().unwrap() = format!("{} ", mid);
         let bot = args.single::<String>().unwrap() + " ";
-        *BOT_EMOJI.lock().unwrap() = format!("{} ",bot);
+        *BOT_EMOJI.lock().unwrap() = format!("{} ", bot);
         let sup = args.single::<String>().unwrap() + " ";
-        *SUP_EMOJI.lock().unwrap() = format!("{} ",sup);
+        *SUP_EMOJI.lock().unwrap() = format!("{} ", sup);
         {
             let conn = DBCONNECTION.db_connection.get().unwrap();
             update_emoji(&conn, [&top, &jg, &mid, &bot, &sup]);
         }
-        let response = msg.reply_ping(&ctx.http, &format!("Role Emojis have been set!")).await?;
+        let response = msg
+            .reply_ping(&ctx.http, "Role Emojis have been set!")
+            .await?;
         sleep(Duration::from_secs(3)).await;
         response.delete(&ctx.http).await?;
     }
@@ -176,7 +197,7 @@ async fn role_emojis(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
 }
 
 #[command]
-async fn test(ctx: &Context, msg: &Message) -> CommandResult{
+async fn test(ctx: &Context, msg: &Message) -> CommandResult {
     {
         let mut data = ctx.data.write().await;
         let queue = data.get_mut::<QueueManager>().unwrap();
@@ -205,7 +226,7 @@ async fn test(ctx: &Context, msg: &Message) -> CommandResult{
         sleep(Duration::from_secs(3)).await;
         response.delete(&ctx.http).await?;
     }
-    display(&ctx, msg.guild_id.unwrap()).await;
+    display(ctx, msg.guild_id.unwrap()).await;
     msg.delete(&ctx.http).await?;
     Ok(())
 }

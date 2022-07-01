@@ -1,9 +1,9 @@
+use std::cmp::Ordering;
 use std::f64::EPSILON;
 
-use super::utils::{team_rating, gamma, score};
-use super::statistics::{phi_major,v,w,vt,wt};
+use super::statistics::{phi_major, v, vt, w, wt};
+use super::utils::{gamma, score, team_rating};
 use serenity::model::id::UserId;
-use tracing::log::info;
 
 const DEFAULT_Z: f64 = 3.0;
 const DEFAULT_MU: f64 = 25.0;
@@ -21,7 +21,7 @@ pub struct Rating {
     pub sigma: f64,
 }
 
-// impl Rating 
+// impl Rating
 
 impl Rating {
     pub fn new(user_id: UserId) -> Rating {
@@ -31,45 +31,54 @@ impl Rating {
             sigma: DEFAULT_SIGMA,
         }
     }
-    
-    pub fn from(user_id: UserId,mu: f64, sigma: f64) -> Rating {
-        Rating {
-            user_id,
-            mu,
-            sigma,
-        }
+
+    pub fn from(user_id: UserId, mu: f64, sigma: f64) -> Rating {
+        Rating { user_id, mu, sigma }
     }
-    
+
     pub fn ordinal(&self) -> f64 {
         20.0 * (self.mu - DEFAULT_Z * self.sigma + 25.0)
     }
 }
 
-pub fn rate(teams: &Vec<Vec<Rating>>) -> Vec<Vec<Rating>> {
-    let teams_copy = teams.clone();
-    let processed_teams = &teams.into_iter().map(|team| {
-        let team = team.into_iter().map(|rating| {
-            let mut rating = rating.clone();
-            rating.sigma = f64::sqrt(rating.sigma*rating.sigma*TAU_SQUARED);
-            return rating;
-        }).collect::<Vec<Rating>>();
-        return team;
-    }).collect::<Vec<Vec<Rating>>>();
+pub fn rate(teams: &[Vec<Rating>]) -> Vec<Vec<Rating>> {
+    let teams_copy = teams.to_owned();
+    let processed_teams = &teams
+        .iter()
+        .map(|team| {
+            let team = team
+                .iter()
+                .map(|rating| {
+                    let mut rating = rating.clone();
+                    rating.sigma = f64::sqrt(rating.sigma * rating.sigma * TAU_SQUARED);
+                    rating
+                })
+                .collect::<Vec<Rating>>();
+            team
+        })
+        .collect::<Vec<Vec<Rating>>>();
 
     let mut new_ratings = bt_full(processed_teams);
-    
-    new_ratings = new_ratings.into_iter().enumerate().map(|(i,team)| {
-        team.into_iter().enumerate().map(|(j,mut rating)| {
-            rating.sigma = f64::min(rating.sigma, teams_copy[i][j].sigma);
-            return rating
-        }).collect::<Vec<Rating>>()
-    }).collect::<Vec<Vec<Rating>>>();
-    
+
+    new_ratings = new_ratings
+        .into_iter()
+        .enumerate()
+        .map(|(i, team)| {
+            team.into_iter()
+                .enumerate()
+                .map(|(j, mut rating)| {
+                    rating.sigma = f64::min(rating.sigma, teams_copy[i][j].sigma);
+                    rating
+                })
+                .collect::<Vec<Rating>>()
+        })
+        .collect::<Vec<Vec<Rating>>>();
+
     new_ratings
 }
 
-fn bt_full(teams: &Vec<Vec<Rating>>) -> Vec<Vec<Rating>>{
-    let ranks: [usize;2] = [0,1];
+fn bt_full(teams: &Vec<Vec<Rating>>) -> Vec<Vec<Rating>> {
+    let ranks: [usize; 2] = [0, 1];
     let mut team_mu = vec![0.0; teams.len()];
     let mut team_sigma_sq = vec![0.0; teams.len()];
     let mut team_omega = vec![0.0; teams.len()];
@@ -88,8 +97,7 @@ fn bt_full(teams: &Vec<Vec<Rating>>) -> Vec<Vec<Rating>>{
                 continue;
             }
 
-            let c = (team_sigma_sq[team_idx] + team_sigma_sq[team2_idx] + TWO_BETA_SQUARED)
-                .sqrt();
+            let c = (team_sigma_sq[team_idx] + team_sigma_sq[team2_idx] + TWO_BETA_SQUARED).sqrt();
             let e1 = (team_mu[team_idx] / c).exp();
             let e2 = (team_mu[team2_idx] / c).exp();
             let piq = e1 / (e1 + e2);
@@ -99,7 +107,7 @@ fn bt_full(teams: &Vec<Vec<Rating>>) -> Vec<Vec<Rating>>{
             let s = score(rq as f64, ri as f64);
 
             let omega = (team_sigma_sq[team_idx] / c) * (s - piq);
-            let gamma = gamma(c,team_sigma_sq[team_idx]);
+            let gamma = gamma(c, team_sigma_sq[team_idx]);
             let delta = gamma * (team_sigma_sq[team_idx] / (c * c)) * piq * pqi;
 
             team_omega[team_idx] += omega;
@@ -113,20 +121,20 @@ fn bt_full(teams: &Vec<Vec<Rating>>) -> Vec<Vec<Rating>>{
         let mut team_result = Vec::with_capacity(team.len());
 
         for player in team.iter() {
-            let new_mu =
-                player.mu + (player.sigma*player.sigma / team_sigma_sq[team_idx]) * team_omega[team_idx];
+            let new_mu = player.mu
+                + (player.sigma * player.sigma / team_sigma_sq[team_idx]) * team_omega[team_idx];
 
-            let mut sigma_adj =
-                1.0 - (player.sigma*player.sigma / team_sigma_sq[team_idx]) * team_delta[team_idx];
+            let mut sigma_adj = 1.0
+                - (player.sigma * player.sigma / team_sigma_sq[team_idx]) * team_delta[team_idx];
 
             if sigma_adj < 0.0001 {
                 sigma_adj = 0.0001;
             }
 
-            let new_sigma_sq = player.sigma*player.sigma * sigma_adj;
+            let new_sigma_sq = player.sigma * player.sigma * sigma_adj;
 
             team_result.push(Rating {
-                user_id: player.user_id.clone(),
+                user_id: player.user_id,
                 mu: new_mu,
                 sigma: new_sigma_sq.sqrt(),
             });
@@ -137,7 +145,7 @@ fn bt_full(teams: &Vec<Vec<Rating>>) -> Vec<Vec<Rating>>{
     result
 }
 
-fn tm_full(teams: &Vec<Vec<Rating>>) -> Vec<Vec<Rating>> {
+fn tm_full(teams: &[Vec<Rating>]) -> Vec<Vec<Rating>> {
     let team_ratings = team_rating(teams);
     let mut new_ratings: Vec<Vec<Rating>> = Vec::new();
     for i in 0..team_ratings.len() {
@@ -146,30 +154,37 @@ fn tm_full(teams: &Vec<Vec<Rating>>) -> Vec<Vec<Rating>> {
         let mut new_team: Vec<Rating> = Vec::new();
         for q in 0..team_ratings.len() {
             if q == i {
-                continue
+                continue;
             };
             let ciq = f64::sqrt(team_ratings[i].1 + team_ratings[q].1 + TWO_BETA_SQUARED);
-            let tmp = (team_ratings[i].0-team_ratings[q].0)/ciq;
-            let sigsq_to_ciq = team_ratings[i].1/ciq;
+            let tmp = (team_ratings[i].0 - team_ratings[q].0) / ciq;
+            let sigsq_to_ciq = team_ratings[i].1 / ciq;
             let gamma = gamma(ciq, team_ratings[i].1);
-            if team_ratings[q].3 > team_ratings[i].3 {
-                omega += sigsq_to_ciq*v(tmp,EPSILON/ciq);
-                delta += gamma*sigsq_to_ciq/ciq*w(tmp,EPSILON/ciq);
-            } else  if team_ratings[q].3 < team_ratings[i].3 {
-                omega += -sigsq_to_ciq*v(-tmp,EPSILON/ciq);
-                delta += gamma*sigsq_to_ciq/ciq*w(-tmp,EPSILON/ciq);
-            } else {
-                omega += sigsq_to_ciq*vt(tmp,EPSILON/ciq);
-                delta += gamma*sigsq_to_ciq/ciq*wt(tmp,EPSILON/ciq);
+            match team_ratings[q].3.cmp(&team_ratings[i].3) {
+                Ordering::Greater => {
+                    omega += sigsq_to_ciq * v(tmp, EPSILON / ciq);
+                    delta += gamma * sigsq_to_ciq / ciq * w(tmp, EPSILON / ciq);
+                }
+                Ordering::Less => {
+                    omega += -sigsq_to_ciq * v(-tmp, EPSILON / ciq);
+                    delta += gamma * sigsq_to_ciq / ciq * w(-tmp, EPSILON / ciq);
+                }
+                Ordering::Equal => {
+                    omega += sigsq_to_ciq * vt(tmp, EPSILON / ciq);
+                    delta += gamma * sigsq_to_ciq / ciq * wt(tmp, EPSILON / ciq);
+                }
             }
         }
         for player in team_ratings[i].2.iter() {
-            let sigmasq= player.sigma*player.sigma;
+            let sigmasq = player.sigma * player.sigma;
             // dbg!(&player.user_id);
             // dbg!(sigmasq);
             // dbg!(sigmasq/team_ratings[i].1);
-            let new_mu =  player.mu + (sigmasq/team_ratings[i].1) * omega;
-            let new_sigma = f64::sqrt(f64::max(1.0-sigmasq/team_ratings[i].1*delta, f64::EPSILON));
+            let new_mu = player.mu + (sigmasq / team_ratings[i].1) * omega;
+            let new_sigma = f64::sqrt(f64::max(
+                1.0 - sigmasq / team_ratings[i].1 * delta,
+                f64::EPSILON,
+            ));
             new_team.push(Rating::from(player.user_id, new_mu, new_sigma));
         }
         new_ratings.push(new_team);
@@ -177,14 +192,16 @@ fn tm_full(teams: &Vec<Vec<Rating>>) -> Vec<Vec<Rating>> {
     new_ratings
 }
 
-
-pub fn predicte_win(teams: &Vec<Vec<Rating>>) -> f64{
+pub fn predicte_win(teams: &Vec<Vec<Rating>>) -> f64 {
     let team_ratings = team_rating(teams);
-    let n:f64 = teams.len() as f64;
-    let denom:f64  = (n * (n - 1.0)) / 2.0;
+    let n: f64 = teams.len() as f64;
+    let denom: f64 = (n * (n - 1.0)) / 2.0;
     let mu_a = team_ratings[0].0;
     let mu_b = team_ratings[1].0;
     let sigmas_sq_a = team_ratings[0].1;
     let sigmas_sq_b = team_ratings[1].1;
-    phi_major((mu_a - mu_b) / f64::sqrt(n * BETA_SQUARED + f64::powi(sigmas_sq_a,2)+ f64::powi(sigmas_sq_b,2)))/denom
+    phi_major(
+        (mu_a - mu_b)
+            / f64::sqrt(n * BETA_SQUARED + f64::powi(sigmas_sq_a, 2) + f64::powi(sigmas_sq_b, 2)),
+    ) / denom
 }
