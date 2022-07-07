@@ -59,6 +59,19 @@ pub fn save_player(conn: &PgConnection, discord_id: &UserId, player_info: &Playe
         .expect("Error saving new player ratings");
 }
 
+pub fn remove_player(conn: &PgConnection, discord_id: &UserId) {
+    use schema::{player, player_ratings};
+
+    diesel::delete(player_ratings::table)
+        .filter(player_ratings::discord_id.eq(*discord_id.as_u64() as i64))
+        .execute(conn)
+        .expect("Error deleting player ratings");
+    diesel::delete(player::table)
+        .filter(player::discord_id.eq(*discord_id.as_u64() as i64))
+        .execute(conn)
+        .expect("Error deleting player");
+}
+
 pub fn get_players(conn: &PgConnection) -> Vec<(UserId, Player)> {
     use schema::{player, player_ratings};
 

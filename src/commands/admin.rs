@@ -30,7 +30,7 @@ async fn mark(ctx: &Context, msg: &Message) -> CommandResult {
     let channel_id;
     {
         let data = ctx.data.read().await;
-        channel_id = *data.get::<QueueChannel>().unwrap();
+        channel_id = *data.get::<QueueChannel>().unwrap().lock().await;
     }
     if msg.channel_id != channel_id {
         if channel_id != ChannelId(0) {
@@ -67,11 +67,10 @@ async fn mark(ctx: &Context, msg: &Message) -> CommandResult {
                 let emoji = &reaction.as_inner_ref().emoji;
                 if emoji.as_data().as_str() == "✅" {
                     {
-                        let mut data = ctx.data.write().await;
-                        let queue_channel = data.get_mut::<QueueChannel>().unwrap();
-                        *queue_channel = msg.channel_id;
-                        let queue = data.get_mut::<QueueEmbed>().unwrap();
-                        *queue = MessageId(0);
+                        let data = ctx.data.read().await;
+                        let queue_channel = data.get::<QueueChannel>().unwrap();
+                        *queue_channel.lock().await = msg.channel_id;
+                        // let queue = data.get::<QueueEmbed>().unwrap();
                         let conn = DBCONNECTION.db_connection.get().unwrap();
                         update_queue_channel(&conn, &msg.channel_id);
                     }
@@ -104,7 +103,7 @@ async fn unmark(ctx: &Context, msg: &Message) -> CommandResult {
     let channel_id;
     {
         let data = ctx.data.read().await;
-        channel_id = *data.get::<QueueChannel>().unwrap();
+        channel_id = *data.get::<QueueChannel>().unwrap().lock().await;
     }
     if channel_id != ChannelId(0) {
         if msg.channel_id != channel_id {
@@ -126,11 +125,11 @@ async fn unmark(ctx: &Context, msg: &Message) -> CommandResult {
             response.delete(&ctx.http).await?;
         } else {
             {
-                let mut data = ctx.data.write().await;
-                let queue_channel = data.get_mut::<QueueChannel>().unwrap();
-                *queue_channel = ChannelId(0);
-                let queue = data.get_mut::<QueueEmbed>().unwrap();
-                *queue = MessageId(0);
+                let data = ctx.data.read().await;
+                let queue_channel = data.get::<QueueChannel>().unwrap();
+                *queue_channel.lock().await = ChannelId(0);
+                // let queue = data.get::<QueueEmbed>().unwrap();
+                // let queue = Arc::clone(queue);
                 let conn = DBCONNECTION.db_connection.get().unwrap();
                 update_queue_channel(&conn, &ChannelId(0));
             }
@@ -208,6 +207,7 @@ async fn test(ctx: &Context, msg: &Message) -> CommandResult {
             //random range
             let mut rng = rand::thread_rng();
             let rng = rng.gen_range(15.0..=45.0);
+            queue.unregister_player(UserId(i));
             queue.register_player(UserId(i), vec![], rng);
         }
         info!("Done. Adding to queue");

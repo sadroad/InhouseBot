@@ -59,13 +59,13 @@ impl TypeMapKey for QueueManager {
 pub struct QueueEmbed;
 
 impl TypeMapKey for QueueEmbed {
-    type Value = MessageId;
+    type Value = Arc<Mutex<MessageId>>;
 }
 
 pub struct QueueChannel;
 
 impl TypeMapKey for QueueChannel {
-    type Value = ChannelId;
+    type Value = Arc<Mutex<ChannelId>>;
 }
 
 pub struct Riot;
@@ -94,7 +94,7 @@ impl EventHandler for Handler {
         let prefix: String;
         {
             let data = ctx.data.read().await;
-            channel_id = *data.get::<QueueChannel>().unwrap();
+            channel_id = *data.get::<QueueChannel>().unwrap().lock().await;
             prefix = data.get::<Prefix>().unwrap().clone();
         }
         if msg.channel_id == channel_id && !msg.author.bot {
@@ -178,8 +178,8 @@ async fn main() {
         data.insert::<ShardManagerContainer>(client.shard_manager.clone());
         data.insert::<Prefix>(prefix);
         data.insert::<QueueManager>(Arc::new(Mutex::new(manager)));
-        data.insert::<QueueChannel>(queue_channel);
-        data.insert::<QueueEmbed>(MessageId(0));
+        data.insert::<QueueChannel>(Arc::new(Mutex::new(queue_channel)));
+        data.insert::<QueueEmbed>(Arc::new(Mutex::new(MessageId(0))));
         data.insert::<Riot>(riot_key);
     }
 

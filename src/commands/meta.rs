@@ -51,7 +51,8 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
         accounts = response.content.to_string();
         dm.delete(&ctx.http).await?;
     } else {
-        let resp = dm.channel_id
+        let resp = dm
+            .channel_id
             .say(&ctx.http, "No response received. Cancelling registration.")
             .await?;
         sleep(Duration::from_secs(3)).await;
