@@ -1,4 +1,3 @@
-
 use crate::lib::database::{get_players, next_game_id, remove_player, save_player};
 use crate::lib::openskill::lib::{predicte_win, Rating, DEFAULT_SIGMA};
 use crate::{DBCONNECTION, LOADING_EMOJI};
@@ -1186,7 +1185,7 @@ pub async fn get_msl_points(
     Ok(player_points.into())
 }
 
-async fn get_name(player: &UserId, ctx: &Context, _guild_id: GuildId) -> String {
+async fn get_name(player: &UserId, ctx: &Context, guild_id: GuildId) -> String {
     let name = if player == &0
         || player == &1
         || player == &2

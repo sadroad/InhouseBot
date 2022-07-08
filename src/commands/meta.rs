@@ -183,5 +183,6 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
         .await?;
     sleep(Duration::from_secs(3)).await;
     response.delete(&ctx.http).await?;
+    msg.delete(&ctx.http).await?;
     Ok(())
 }
