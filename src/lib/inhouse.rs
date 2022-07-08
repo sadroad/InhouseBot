@@ -190,17 +190,17 @@ impl Game {
         emoji: &ReactionType,
     ) -> Result<(), UserId> {
         let players = self
-                .top
-                .iter_mut()
-                .chain(self.jungle.iter_mut())
-                .chain(self.mid.iter_mut())
-                .chain(self.bot.iter_mut())
-                .chain(self.support.iter_mut());
+            .top
+            .iter_mut()
+            .chain(self.jungle.iter_mut())
+            .chain(self.mid.iter_mut())
+            .chain(self.bot.iter_mut())
+            .chain(self.support.iter_mut());
         for player in players {
             if player.0 == user_reactor {
                 if emoji == &ReactionType::Unicode(String::from("✅")) {
                     player.1 = true;
-                        return Ok(());
+                    return Ok(());
                 }
                 if emoji == &ReactionType::Unicode(String::from("❌")) {
                     return Err(user_reactor);
