@@ -1,4 +1,4 @@
-use crate::display;
+
 use crate::lib::database::{get_players, next_game_id, remove_player, save_player};
 use crate::lib::openskill::lib::{predicte_win, Rating, DEFAULT_SIGMA};
 use crate::{DBCONNECTION, LOADING_EMOJI};
@@ -190,23 +190,23 @@ impl Game {
         user_reactor: UserId,
         emoji: &ReactionType,
     ) -> Result<(), UserId> {
-        if emoji == &ReactionType::Unicode(String::from("✅")) {
-            let players = self
+        let players = self
                 .top
                 .iter_mut()
                 .chain(self.jungle.iter_mut())
                 .chain(self.mid.iter_mut())
                 .chain(self.bot.iter_mut())
                 .chain(self.support.iter_mut());
-            for player in players {
-                if player.0 == user_reactor {
+        for player in players {
+            if player.0 == user_reactor {
+                if emoji == &ReactionType::Unicode(String::from("✅")) {
                     player.1 = true;
-                    return Ok(());
+                        return Ok(());
+                }
+                if emoji == &ReactionType::Unicode(String::from("❌")) {
+                    return Err(user_reactor);
                 }
             }
-        }
-        if emoji == &ReactionType::Unicode(String::from("❌")) {
-            return Err(user_reactor);
         }
         Ok(())
     }
@@ -1186,7 +1186,7 @@ pub async fn get_msl_points(
     Ok(player_points.into())
 }
 
-async fn get_name(player: &UserId, ctx: &Context, guild_id: GuildId) -> String {
+async fn get_name(player: &UserId, ctx: &Context, _guild_id: GuildId) -> String {
     let name = if player == &0
         || player == &1
         || player == &2

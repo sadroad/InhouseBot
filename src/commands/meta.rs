@@ -168,7 +168,7 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
         return Ok(());
     }
     {
-        let data = ctx.data.write().await;
+        let data = ctx.data.read().await;
         let queue = data.get::<QueueManager>().unwrap();
         let mut queue = queue.lock().await;
         let player = msg.author.id;

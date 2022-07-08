@@ -125,6 +125,9 @@ impl EventHandler for Handler {
             } else {
                 msg.delete(&ctx.http).await.unwrap();
             }
+            let guild_id = msg.guild_id.unwrap();
+            display(&ctx, guild_id).await;
+            show_games(&ctx, guild_id).await;
         }
     }
 }

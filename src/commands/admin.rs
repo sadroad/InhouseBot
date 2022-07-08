@@ -1,5 +1,5 @@
 use crate::lib::inhouse::QueueManager;
-use crate::{Prefix, QueueChannel, QueueEmbed};
+use crate::{Prefix, QueueChannel};
 
 use super::queue::display;
 
@@ -198,8 +198,8 @@ async fn role_emojis(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
 #[command]
 async fn test(ctx: &Context, msg: &Message) -> CommandResult {
     {
-        let mut data = ctx.data.write().await;
-        let queue = data.get_mut::<QueueManager>().unwrap();
+        let data = ctx.data.read().await;
+        let queue = data.get::<QueueManager>().unwrap();
         let mut queue = queue.lock().await;
         //register 10 fake players
         info!("Registering 10 fake players");
