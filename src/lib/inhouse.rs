@@ -1168,7 +1168,6 @@ impl QueueManager {
             })
             .await
             .unwrap();
-        //TODO add the game to the database
         self.current_games.push(game);
     }
 

@@ -165,8 +165,6 @@ pub async fn leave(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
 
 #[command]
 pub async fn won(ctx: &Context, msg: &Message) -> CommandResult {
-    //TODO Implment this command.
-    //TODO For cassie's idea, make the bot wait a couple of seconds telling the user that if they don't want to be queued they should react with a red x.
     match check_queue_channel(ctx, msg).await {
         Ok(value) => {
             if value {
@@ -454,11 +452,20 @@ pub async fn vote_remove(ctx: &Context, msg: &Message, mut args: Args) -> Comman
                         .await?;
                     sleep(Duration::from_secs(3)).await;
                     response.delete(&ctx.http).await?;
+                    msg.delete(&ctx.http).await?;
                     return Ok(());
                 }
                 let show_user = args.single::<String>().unwrap();
                 let user = show_user.replace("<@", "").replace(">", "");
                 let user = user.parse::<UserId>().unwrap();
+                if user == msg.author.id {
+                    let response = msg.reply_mention(&ctx.http, "🦛🦛🦛🦛🦛🦛🦛🦛🦛🦛🦛").await?;
+                    sleep(Duration::from_secs(3)).await;
+                    response.delete(&ctx.http).await?;
+                    leave(ctx, msg, args);
+                    msg.delete(&ctx.http).await?;
+                    return Ok(());
+                }
                 let channel_id;
                 {
                     let data = ctx.data.read().await;
