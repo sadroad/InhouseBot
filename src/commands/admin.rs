@@ -244,6 +244,7 @@ pub async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResu
             .await?;
         sleep(Duration::from_secs(3)).await;
         response.delete(&ctx.http).await?;
+        return Ok(());
     } else {
         dbg!(&args);
         let user = args

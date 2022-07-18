@@ -130,7 +130,7 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(ping, queue, leave, register, won, cancel, vote_clear, remove)]
+#[commands(ping, queue, leave, register, won, cancel, vote_clear, vote_remove)]
 struct General;
 
 #[group]
