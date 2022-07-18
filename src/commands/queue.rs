@@ -173,7 +173,7 @@ pub async fn won(ctx: &Context, msg: &Message) -> CommandResult {
                 {
                     let data = ctx.data.read().await;
                     let queue = data.get::<QueueManager>().unwrap().lock().await;
-                    game = queue.get_side(user).await.clone();
+                    game = queue.get_side(user).await;
                 }
                 let guild_id = msg.guild_id.unwrap();
                 let channel_id = msg.channel_id;
@@ -207,9 +207,7 @@ pub async fn won(ctx: &Context, msg: &Message) -> CommandResult {
                                     let response = channel_id
                                         .say(
                                             &ctx.http,
-                                            format!(
-                                    "Vote to confirm the game's outcome has passed. The game will be scored."
-                                ),
+                                            "Vote to confirm the game's outcome has passed. The game will be scored.".to_string(),
                                         )
                                         .await?;
                                     sleep(Duration::from_secs(3)).await;
@@ -220,7 +218,7 @@ pub async fn won(ctx: &Context, msg: &Message) -> CommandResult {
                                         let data = ctx.data.read().await;
                                         let queue = data.get::<QueueManager>().unwrap();
                                         let queue = queue.lock().await;
-                                        mentions = queue.requeue_players(game.0).await;                 
+                                        mentions = queue.requeue_players(game.0).await;
                                     }
                                     let no_requeue = channel_id.say(&ctx.http, &format!("{}\n I will requeue you in 5 seconds. If you **dont** want to be queued, react with a ❌", mentions)).await?;
                                     no_requeue.react(&ctx.http, '❌').await?;
@@ -235,16 +233,31 @@ pub async fn won(ctx: &Context, msg: &Message) -> CommandResult {
                                     while let Some(event) = collector.next().await {
                                         match event.as_ref() {
                                             Event::ReactionAdd(reaction) => {
-                                                if reaction.reaction.emoji == ReactionType::Unicode(String::from("❌")) {
-                                                    dont_queue.push(reaction.reaction.user_id.unwrap());
-                                                }
-                                            },
-                                            Event::ReactionRemove(reaction) => {
-                                                if reaction.reaction.emoji == ReactionType::Unicode(String::from("❌")) {
-                                                    dont_queue.swap_remove(dont_queue.iter().position(|&x| x == reaction.reaction.user_id.unwrap()).unwrap());
+                                                if reaction.reaction.emoji
+                                                    == ReactionType::Unicode(String::from("❌"))
+                                                {
+                                                    dont_queue
+                                                        .push(reaction.reaction.user_id.unwrap());
                                                 }
                                             }
-                                            _ =>{}
+                                            Event::ReactionRemove(reaction) => {
+                                                if reaction.reaction.emoji
+                                                    == ReactionType::Unicode(String::from("❌"))
+                                                {
+                                                    dont_queue.swap_remove(
+                                                        dont_queue
+                                                            .iter()
+                                                            .position(|&x| {
+                                                                x == reaction
+                                                                    .reaction
+                                                                    .user_id
+                                                                    .unwrap()
+                                                            })
+                                                            .unwrap(),
+                                                    );
+                                                }
+                                            }
+                                            _ => {}
                                         }
                                     }
                                     {
@@ -271,9 +284,7 @@ pub async fn won(ctx: &Context, msg: &Message) -> CommandResult {
                     let response = channel_id
                         .say(
                             &ctx.http,
-                            format!(
-                                "Vote to confirm game's outcome has failed. The game will not be scored, please try again."
-                            ),
+                            "Vote to confirm game's outcome has failed. The game will not be scored, please try again.".to_string(),
                         )
                         .await?;
                     sleep(Duration::from_secs(3)).await;
@@ -361,9 +372,7 @@ pub async fn vote_clear(ctx: &Context, msg: &Message) -> CommandResult {
                 let response = channel_id
         .say(
             &ctx.http,
-            format!(
-                "Vote to clear the queue has started. React with a ✅ to vote to clear the queue.\nI'll wait for 60 seconds for the required 6+ votes."
-            ),
+            "Vote to clear the queue has started. React with a ✅ to vote to clear the queue.\nI'll wait for 60 seconds for the required 6+ votes.".to_string(),
         )
         .await?;
                 response.react(&ctx.http, '✅').await?;
@@ -385,9 +394,7 @@ pub async fn vote_clear(ctx: &Context, msg: &Message) -> CommandResult {
                                     let response = channel_id
                                         .say(
                                             &ctx.http,
-                                            format!(
-                                    "Vote to clear the queue has passed. The queue will be cleared."
-                                ),
+                                            "Vote to clear the queue has passed. The queue will be cleared.".to_string(),
                                         )
                                         .await?;
                                     sleep(Duration::from_secs(3)).await;
@@ -417,9 +424,8 @@ pub async fn vote_clear(ctx: &Context, msg: &Message) -> CommandResult {
                     let response = channel_id
                         .say(
                             &ctx.http,
-                            format!(
-                                "Vote to clear the queue has failed. The queue will not be cleared."
-                            ),
+                            "Vote to clear the queue has failed. The queue will not be cleared."
+                                .to_string(),
                         )
                         .await?;
                     sleep(Duration::from_secs(3)).await;
@@ -447,8 +453,13 @@ pub async fn vote_remove(ctx: &Context, msg: &Message, mut args: Args) -> Comman
         Ok(value) => {
             if value {
                 if args.len() != 1 {
+                    let prefix;
+                    {
+                        let data = ctx.data.read().await;
+                        prefix = data.get::<Prefix>().unwrap().clone();
+                    }
                     let response = msg
-                        .reply_mention(&ctx.http, "Usage: !vote remove @user")
+                        .reply_mention(&ctx.http, format!("Usage: {}remove @user",prefix))
                         .await?;
                     sleep(Duration::from_secs(3)).await;
                     response.delete(&ctx.http).await?;
@@ -456,10 +467,12 @@ pub async fn vote_remove(ctx: &Context, msg: &Message, mut args: Args) -> Comman
                     return Ok(());
                 }
                 let show_user = args.single::<String>().unwrap();
-                let user = show_user.replace("<@", "").replace(">", "");
+                let user = show_user.replace("<@", "").replace('>', "");
                 let user = user.parse::<UserId>().unwrap();
                 if user == msg.author.id {
-                    let response = msg.reply_mention(&ctx.http, "🦛🦛🦛🦛🦛🦛🦛🦛🦛🦛🦛").await?;
+                    let response = msg
+                        .reply_mention(&ctx.http, "🦛🦛🦛🦛🦛🦛🦛🦛🦛🦛🦛")
+                        .await?;
                     sleep(Duration::from_secs(3)).await;
                     response.delete(&ctx.http).await?;
                     leave(ctx, msg, args);
@@ -501,7 +514,7 @@ pub async fn vote_remove(ctx: &Context, msg: &Message, mut args: Args) -> Comman
                                     .say(
                                         &ctx.http,
                                         format!(
-                                            "Vote to kick has passed. {} will be removed from the queue.",
+                                            "Vote to remove has passed. {} will be removed from the queue.",
                                             show_user
                                         ),
                                     )
@@ -533,9 +546,8 @@ pub async fn vote_remove(ctx: &Context, msg: &Message, mut args: Args) -> Comman
                     let response = channel_id
                         .say(
                             &ctx.http,
-                            format!(
-                                "Vote to clear the queue has failed. The queue will not be cleared."
-                            ),
+                            "Vote to remove player has failed. The player will not be removed."
+                                .to_string(),
                         )
                         .await?;
                     sleep(Duration::from_secs(3)).await;

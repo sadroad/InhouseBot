@@ -251,7 +251,7 @@ pub async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResu
             .single::<String>()
             .unwrap()
             .replace("<@", "")
-            .replace(">", "");
+            .replace('>', "");
         let user = user.parse::<UserId>().unwrap();
         {
             let data = ctx.data.read().await;

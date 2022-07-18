@@ -191,11 +191,7 @@ pub fn update_game(conn: &PgConnection, game: &Game, winner: bool) {
     let blue_team = blue.iter();
     let red = game.team(1);
     let red_team = red.iter();
-    let teams_merged: Vec<&(UserId, i8, i8)> = blue
-        .iter()
-        .map(|x| x)
-        .chain(red.iter().map(|x| x))
-        .collect();
+    let teams_merged: Vec<&(UserId, i8, i8)> = blue.iter().chain(red.iter()).collect();
     let mut new_game_roles: Vec<NewGameRoles> = Vec::new();
     for player in blue_team {
         new_game_roles.push(NewGameRoles {
@@ -233,7 +229,7 @@ pub fn update_game(conn: &PgConnection, game: &Game, winner: bool) {
     }
     let new_game = NewGames {
         id: game.get_id(),
-        winner: winner,
+        winner,
         players: teams_merged.iter().map(|x| i64::from(x.0)).collect(),
     };
     diesel::insert_into(games::table)

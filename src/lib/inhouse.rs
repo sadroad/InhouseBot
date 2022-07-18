@@ -11,11 +11,12 @@ use riven::consts::{Division, QueueType, Tier};
 use riven::RiotApi;
 use scraper::{Html, Selector};
 use serde_json::Value;
-use serenity::model::channel::{ReactionType};
+use serenity::model::channel::ReactionType;
 
 use serenity::model::id::{ChannelId, GuildId, MessageId, UserId};
 use serenity::prelude::Context;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt::Write as _;
 use std::sync::Mutex;
 use tokio::time::{sleep, Duration};
 use tracing::log::info;
@@ -294,7 +295,7 @@ impl Game {
         for team in teams {
             let mut tmp = String::new();
             for (i, player) in team.iter().enumerate() {
-                players.push_str(&format!("<@{}>", player.0));
+                let _ = write!(players, "<@{}>", player.0);
                 let name = get_name(&player.0, ctx, guild_id).await;
                 match i {
                     0 => tmp.push_str(&TOP_EMOJI.lock().unwrap()),
@@ -392,19 +393,19 @@ impl QueueManager {
     }
 
     fn check_player_in_game(&self, discord_id: UserId) -> Result<(), &str> {
-        if let Some(_) = self
+        if self
             .current_games
             .iter()
-            .find(|game| game.player_in_game(&discord_id))
+            .any(|game| game.player_in_game(&discord_id))
         {
             return Err(
                 "Player is currently in a game. Either score the game or wait for it to end",
             );
         }
-        if let Some(_) = self
+        if self
             .tentative_games
             .iter()
-            .find(|game| game.player_in_game(&discord_id))
+            .any(|game| game.player_in_game(&discord_id))
         {
             return Err("My guy. ur queued for a game like cancel it or what???????🦧");
         }
@@ -941,12 +942,18 @@ impl QueueManager {
         let teams = blue.iter().chain(red.iter());
         let mut output = String::new();
         for player in teams {
-            output.push_str(&format!("<@{}>", player.0));
+            let _ = write!(output, "<@{}>", player.0);
         }
         output
     }
 
-    pub async fn win(&mut self, game: (i32, String), ctx: &Context, queue_id: ChannelId, dont_queue: Vec<UserId>) {
+    pub async fn win(
+        &mut self,
+        game: (i32, String),
+        ctx: &Context,
+        queue_id: ChannelId,
+        dont_queue: Vec<UserId>,
+    ) {
         let game_final = self.current_games.swap_remove(
             self.current_games
                 .iter()
@@ -963,12 +970,11 @@ impl QueueManager {
             .iter()
             .map(|x| self.players.get(&x.0).unwrap().rating.clone())
             .collect();
-        let new_ratings;
-        if game.1 == "Blue" {
-            new_ratings = rate(&[blue_ratings, red_ratings]);
+        let new_ratings = if game.1 == "Blue" {
+            rate(&[blue_ratings, red_ratings])
         } else {
-            new_ratings = rate(&[red_ratings, blue_ratings]);
-        }
+            rate(&[red_ratings, blue_ratings])
+        };
         for team in new_ratings {
             for player in team {
                 let user_id = player.user_id;
@@ -980,7 +986,7 @@ impl QueueManager {
         }
         let conn = DBCONNECTION.db_connection.get().unwrap();
         update_game(&conn, &game_final, game.1 == "Blue");
-        for team in vec![blue,red] {
+        for team in vec![blue, red] {
             for player in team {
                 let user_id = player.0;
                 if !dont_queue.contains(&user_id) {
@@ -988,37 +994,36 @@ impl QueueManager {
                     match player.2 {
                         0 => {
                             role = "top";
-                        },
+                        }
                         1 => {
                             role = "jungle";
-                        },
+                        }
                         2 => {
                             role = "mid";
-                        },
+                        }
                         3 => {
                             role = "bot";
-                        },
+                        }
                         4 => {
                             role = "support";
-                        },
+                        }
                         _ => {}
                     }
-                    let result = self.queue_player(user_id, role);
-                            match result {
-                                Err(e) => {
-                                    let response = queue_id.say(&ctx.http, format!("{}\nError: {}", user_id, e)).await.unwrap();
-                                    sleep(Duration::from_secs(3)).await;
-                                    response.delete(&ctx.http).await.unwrap();
-                                },
-                                _ => {},
-                            }
+                    if let Err(e) = self.queue_player(user_id, role) {
+                        let response = queue_id
+                            .say(&ctx.http, format!("{}\nError: {}", user_id, e))
+                            .await
+                            .unwrap();
+                        sleep(Duration::from_secs(3)).await;
+                        response.delete(&ctx.http).await.unwrap();
+                    }
                 }
             }
         }
         let _ = ctx
-                    .http
-                    .delete_message(u64::from(queue_id), u64::from(game_final.message_id))
-                    .await;
+            .http
+            .delete_message(u64::from(queue_id), u64::from(game_final.message_id))
+            .await;
     }
 
     pub async fn get_emebed_body(
@@ -1105,12 +1110,12 @@ impl QueueManager {
                 let accounts = &self
                     .players
                     .iter()
-                    .find(|x| u64::from(*x.0) == u64::from(player.0))
+                    .find(|x| player.0 == *x.0)
                     .unwrap()
                     .1
                     .riot_accounts;
                 let account = accounts.first().unwrap_or(&temp_name);
-                let result = riot_api.summoner_v4().get_by_puuid(NA1, &account).await;
+                let result = riot_api.summoner_v4().get_by_puuid(NA1, account).await;
                 if result.is_err() {
                     continue;
                 }
@@ -1578,11 +1583,11 @@ async fn get_name(player: &UserId, ctx: &Context, guild_id: GuildId) -> String {
     // };
     let username = player.to_user(&ctx.http).await.unwrap().name;
     let name = player
-                .to_user(&ctx.http)
-                .await
-                .unwrap()
-                .nick_in(&ctx.http, guild_id)
-                .await
-                .unwrap_or(username);
+        .to_user(&ctx.http)
+        .await
+        .unwrap()
+        .nick_in(&ctx.http, guild_id)
+        .await
+        .unwrap_or(username);
     name
 }
