@@ -230,3 +230,47 @@ async fn test(ctx: &Context, msg: &Message) -> CommandResult {
     msg.delete(&ctx.http).await?;
     Ok(())
 }
+
+#[command]
+pub async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+    if args.len() != 1 {
+        let prefix;
+        {
+            let data = ctx.data.read().await;
+            prefix = data.get::<Prefix>().unwrap().clone();
+        }
+        let response = msg
+            .reply_ping(&ctx.http, format!("Usage: {}admin remove @user", prefix))
+            .await?;
+        sleep(Duration::from_secs(3)).await;
+        response.delete(&ctx.http).await?;
+    } else {
+        dbg!(&args);
+        let user = args
+            .single::<String>()
+            .unwrap()
+            .replace("<@", "")
+            .replace(">", "");
+        let user = user.parse::<UserId>().unwrap();
+        {
+            let data = ctx.data.read().await;
+            let queue = data.get::<QueueManager>().unwrap();
+            let mut queue = queue.lock().await;
+            queue.leave_queue(user, "");
+        }
+        display(ctx, msg.guild_id.unwrap()).await;
+    }
+    Ok(())
+}
+
+#[command]
+pub async fn clear(ctx: &Context, msg: &Message) -> CommandResult {
+    {
+        let data = ctx.data.read().await;
+        let queue = data.get::<QueueManager>().unwrap();
+        let mut queue = queue.lock().await;
+        queue.clear_queue().await;
+    }
+    display(ctx, msg.guild_id.unwrap()).await;
+    Ok(())
+}

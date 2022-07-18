@@ -9,7 +9,7 @@ use diesel_migrations::embed_migrations;
 
 use crate::commands::admin::clear_channel;
 
-use super::inhouse::{Player, BOT_EMOJI, JG_EMOJI, MID_EMOJI, SUP_EMOJI, TOP_EMOJI};
+use super::inhouse::{Game, Player, BOT_EMOJI, JG_EMOJI, MID_EMOJI, SUP_EMOJI, TOP_EMOJI};
 use super::openskill::lib::Rating;
 use serenity::http::Http;
 use serenity::model::id::{ChannelId, UserId};
@@ -168,4 +168,80 @@ pub fn next_game_id(conn: &PgConnection) -> i32 {
     } else {
         return games.last().unwrap().id + 1;
     }
+}
+
+pub fn update_rating(conn: &PgConnection, discord_id: &UserId, rating: &Rating) {
+    use schema::player_ratings;
+
+    diesel::update(player_ratings::table)
+        .filter(player_ratings::discord_id.eq(*discord_id.as_u64() as i64))
+        .set((
+            player_ratings::mu.eq(rating.mu),
+            player_ratings::sigma.eq(rating.sigma),
+        ))
+        .execute(conn)
+        .expect("Error updating player ratings");
+}
+
+pub fn update_game(conn: &PgConnection, game: &Game, winner: bool) {
+    use schema::game_roles;
+    use schema::games;
+
+    let blue = game.team(0);
+    let blue_team = blue.iter();
+    let red = game.team(1);
+    let red_team = red.iter();
+    let teams_merged: Vec<&(UserId, i8, i8)> = blue
+        .iter()
+        .map(|x| x)
+        .chain(red.iter().map(|x| x))
+        .collect();
+    let mut new_game_roles: Vec<NewGameRoles> = Vec::new();
+    for player in blue_team {
+        new_game_roles.push(NewGameRoles {
+            game_id: game.get_id(),
+            discord_id: i64::from(player.0),
+            role: {
+                match player.1 {
+                    0 => "top".to_string(),
+                    1 => "jungle".to_string(),
+                    2 => "mid".to_string(),
+                    3 => "bot".to_string(),
+                    4 => "sup".to_string(),
+                    _ => "".to_string(),
+                }
+            },
+            blue_side: true,
+        });
+    }
+    for player in red_team {
+        new_game_roles.push(NewGameRoles {
+            game_id: game.get_id(),
+            discord_id: i64::from(player.0),
+            role: {
+                match player.1 {
+                    0 => "top".to_string(),
+                    1 => "jungle".to_string(),
+                    2 => "mid".to_string(),
+                    3 => "bot".to_string(),
+                    4 => "sup".to_string(),
+                    _ => "".to_string(),
+                }
+            },
+            blue_side: false,
+        });
+    }
+    let new_game = NewGames {
+        id: game.get_id(),
+        winner: winner,
+        players: teams_merged.iter().map(|x| i64::from(x.0)).collect(),
+    };
+    diesel::insert_into(games::table)
+        .values(&new_game)
+        .execute(conn)
+        .expect("Error saving new game");
+    diesel::insert_into(game_roles::table)
+        .values(&new_game_roles)
+        .execute(conn)
+        .expect("Error saving new game roles");
 }

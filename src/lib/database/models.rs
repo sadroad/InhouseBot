@@ -1,4 +1,4 @@
-use super::schema::{player, player_ratings, server_information};
+use super::schema::{game_roles, games, player, player_ratings, server_information};
 
 #[derive(Queryable)]
 pub struct ServerInformation {
@@ -61,8 +61,26 @@ pub struct GameRoles {
     pub blue_side: bool,
 }
 
+#[derive(Insertable)]
+#[table_name = "game_roles"]
+pub struct NewGameRoles {
+    pub discord_id: i64,
+    pub game_id: i32,
+    pub role: String,
+    pub blue_side: bool,
+}
+
 #[derive(Queryable)]
 pub struct Games {
     pub id: i32,
     pub players: Vec<i64>,
+    pub winner: bool,
+}
+
+#[derive(Insertable)]
+#[table_name = "games"]
+pub struct NewGames {
+    pub id: i32,
+    pub players: Vec<i64>,
+    pub winner: bool,
 }

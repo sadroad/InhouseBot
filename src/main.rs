@@ -125,19 +125,16 @@ impl EventHandler for Handler {
             } else {
                 msg.delete(&ctx.http).await.unwrap();
             }
-            let guild_id = msg.guild_id.unwrap();
-            display(&ctx, guild_id).await;
-            show_games(&ctx, guild_id).await;
         }
     }
 }
 
 #[group]
-#[commands(ping, queue, leave, register)]
+#[commands(ping, queue, leave, register, won, cancel, vote_clear, remove)]
 struct General;
 
 #[group]
-#[commands(mark, unmark, role_emojis, test)]
+#[commands(mark, unmark, role_emojis, test, remove, clear)]
 #[prefix("admin")]
 #[required_permissions("ADMINISTRATOR")]
 struct Admin;

@@ -12,6 +12,7 @@ table! {
     games (id) {
         id -> Int4,
         players -> Array<Int8>,
+        winner -> Bool,
     }
 }
 

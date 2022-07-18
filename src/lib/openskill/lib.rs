@@ -21,8 +21,6 @@ pub struct Rating {
     pub sigma: f64,
 }
 
-// impl Rating
-
 impl Rating {
     pub fn new(user_id: UserId) -> Rating {
         Rating {

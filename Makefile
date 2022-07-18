@@ -14,6 +14,7 @@ migrate:
 	diesel migration run
 
 run:
+	cargo fmt
 	@DISCORD_TOKEN=$(DISCORD_TOKEN) \
 	PREFIX=$(PREFIX) \
 	RGAPI_KEY=$(RGAPI_KEY) \

@@ -1,19 +1,22 @@
-use crate::lib::database::{get_players, next_game_id, remove_player, save_player};
-use crate::lib::openskill::lib::{predicte_win, Rating, DEFAULT_SIGMA};
+use crate::lib::database::{
+    get_players, next_game_id, remove_player, save_player, update_game, update_rating,
+};
+use crate::lib::openskill::lib::{predicte_win, rate, Rating, DEFAULT_SIGMA};
 use crate::{DBCONNECTION, LOADING_EMOJI};
 use itertools::{iproduct, Itertools};
 use lazy_static::lazy_static;
+use ordered_float::OrderedFloat;
 use riven::consts::PlatformRoute::NA1;
 use riven::consts::{Division, QueueType, Tier};
 use riven::RiotApi;
 use scraper::{Html, Selector};
 use serde_json::Value;
 use serenity::model::channel::ReactionType;
+
 use serenity::model::id::{ChannelId, GuildId, MessageId, UserId};
 use serenity::prelude::Context;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
-
 use tracing::log::info;
 
 lazy_static! {
@@ -62,7 +65,8 @@ pub struct QueueManager {
     support: VecDeque<UserId>,
     players: HashMap<UserId, Player>, //key: discord id, value: Player
     current_games: Vec<Game>,
-    pub tentative_games: Vec<Game>,
+    tentative_games: Vec<Game>,
+    missing_roles: HashSet<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -72,17 +76,18 @@ pub struct Player {
     pub rating: Rating,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq, Hash)]
 pub struct Game {
-    pub id: i32,
-    pub displayed: bool,
-    pub message_id: MessageId,
-    pub expected_winrate: f64,
-    top: [(UserId, bool); 2],
-    jungle: [(UserId, bool); 2],
-    mid: [(UserId, bool); 2],
-    bot: [(UserId, bool); 2],
-    support: [(UserId, bool); 2],
+    id: i32,
+    message_id: MessageId,
+    expected_winrate: OrderedFloat<f64>,
+    canceled: bool,
+    // 0 == false, 1 == true, 2 == player cancled queue
+    top: [(UserId, i8); 2],
+    jungle: [(UserId, i8); 2],
+    mid: [(UserId, i8); 2],
+    bot: [(UserId, i8); 2],
+    support: [(UserId, i8); 2],
 }
 
 impl Game {
@@ -100,14 +105,14 @@ impl Game {
                     queue.tentative_games.last().unwrap().id + 1
                 }
             },
-            expected_winrate,
-            displayed: false,
+            canceled: false,
+            expected_winrate: OrderedFloat(expected_winrate),
             message_id: MessageId(0),
-            top: [(UserId(0), false); 2],
-            jungle: [(UserId(0), false); 2],
-            mid: [(UserId(0), false); 2],
-            bot: [(UserId(0), false); 2],
-            support: [(UserId(0), false); 2],
+            top: [(UserId(0), 0); 2],
+            jungle: [(UserId(0), 0); 2],
+            mid: [(UserId(0), 0); 2],
+            bot: [(UserId(0), 0); 2],
+            support: [(UserId(0), 0); 2],
         }
     }
     fn from(queue: &QueueManager, teams: Vec<Vec<UserId>>, blue_winrate: f64) -> Game {
@@ -126,20 +131,20 @@ impl Game {
                     || player == &UserId(9)
                 {
                     match j {
-                        0 => game.top[i] = (*player, true),
-                        1 => game.jungle[i] = (*player, true),
-                        2 => game.mid[i] = (*player, true),
-                        3 => game.bot[i] = (*player, true),
-                        4 => game.support[i] = (*player, true),
+                        0 => game.top[i] = (*player, 1),
+                        1 => game.jungle[i] = (*player, 1),
+                        2 => game.mid[i] = (*player, 1),
+                        3 => game.bot[i] = (*player, 1),
+                        4 => game.support[i] = (*player, 1),
                         _ => panic!("Too many players in a team"),
                     }
                 } else {
                     match j {
-                        0 => game.top[i] = (*player, false),
-                        1 => game.jungle[i] = (*player, false),
-                        2 => game.mid[i] = (*player, false),
-                        3 => game.bot[i] = (*player, false),
-                        4 => game.support[i] = (*player, false),
+                        0 => game.top[i] = (*player, 0),
+                        1 => game.jungle[i] = (*player, 0),
+                        2 => game.mid[i] = (*player, 0),
+                        3 => game.bot[i] = (*player, 0),
+                        4 => game.support[i] = (*player, 0),
                         _ => panic!("Too many players in a team"),
                     }
                 }
@@ -148,6 +153,45 @@ impl Game {
         game
     }
 
+    pub fn get_id(&self) -> i32 {
+        self.id
+    }
+
+    fn get_side(&self, player: UserId) -> (i32, String) {
+        let blue = vec![
+            self.top[0],
+            self.jungle[0],
+            self.mid[0],
+            self.bot[0],
+            self.support[0],
+        ];
+        let red = vec![
+            self.top[1],
+            self.jungle[1],
+            self.mid[1],
+            self.bot[1],
+            self.support[1],
+        ];
+        for role in blue.iter() {
+            if role.0 == player {
+                return (self.id, String::from("Blue"));
+            }
+        }
+        for role in red.iter() {
+            if role.0 == player {
+                return (self.id, String::from("Red"));
+            }
+        }
+        (0, String::from(""))
+    }
+
+    fn player_in_game(&self, player: &UserId) -> bool {
+        self.top.iter().any(|p| p.0 == *player)
+            || self.jungle.iter().any(|p| p.0 == *player)
+            || self.mid.iter().any(|p| p.0 == *player)
+            || self.bot.iter().any(|p| p.0 == *player)
+            || self.support.iter().any(|p| p.0 == *player)
+    }
     pub async fn unready(&mut self, user_reactor: UserId, emoji: &ReactionType) -> bool {
         if emoji == &ReactionType::Unicode(String::from("✅")) {
             let players = self
@@ -159,7 +203,7 @@ impl Game {
                 .chain(self.support.iter_mut());
             for player in players {
                 if player.0 == user_reactor {
-                    player.1 = false;
+                    player.1 = 0;
                     return true;
                 }
             }
@@ -167,28 +211,11 @@ impl Game {
         false
     }
 
-    pub async fn get_afk_players(&self) -> HashSet<UserId> {
-        let mut afk_players = HashSet::new();
-        let players = self
-            .top
-            .iter()
-            .chain(self.jungle.iter())
-            .chain(self.mid.iter())
-            .chain(self.bot.iter())
-            .chain(self.support.iter());
-        for player in players {
-            if !player.1 {
-                afk_players.insert(player.0.clone());
-            }
-        }
-        afk_players
-    }
-
     pub async fn update_status(
         &mut self,
         user_reactor: UserId,
         emoji: &ReactionType,
-    ) -> Result<(), UserId> {
+    ) -> Result<(), ()> {
         let players = self
             .top
             .iter_mut()
@@ -199,11 +226,13 @@ impl Game {
         for player in players {
             if player.0 == user_reactor {
                 if emoji == &ReactionType::Unicode(String::from("✅")) {
-                    player.1 = true;
+                    player.1 = 1;
                     return Ok(());
                 }
                 if emoji == &ReactionType::Unicode(String::from("❌")) {
-                    return Err(user_reactor);
+                    self.canceled = true;
+                    player.1 = 2;
+                    return Err(());
                 }
             }
         }
@@ -219,24 +248,30 @@ impl Game {
             .chain(self.bot.iter())
             .chain(self.support.iter());
         for player in players {
-            if !player.1 {
+            if player.1 == 0 {
                 return false;
             }
         }
         true
     }
 
-    fn team(&self, index: usize) -> Vec<(UserId, i8)> {
-        let mut team = Vec::new();
-        team.push((self.top[index].0, 0));
-        team.push((self.jungle[index].0, 1));
-        team.push((self.mid[index].0, 2));
-        team.push((self.bot[index].0, 3));
-        team.push((self.support[index].0, 4));
+    pub fn team(&self, index: usize) -> Vec<(UserId, i8, i8)> {
+        let team = vec![
+            (self.top[index].0, 0, self.top[index].1),
+            (self.jungle[index].0, 1, self.jungle[index].1),
+            (self.mid[index].0, 2, self.mid[index].1),
+            (self.bot[index].0, 3, self.bot[index].1),
+            (self.support[index].0, 4, self.support[index].1),
+        ];
         team
     }
 
-    pub async fn display(&self, ctx: &Context, guild_id: GuildId) -> (String, String) {
+    pub async fn display(
+        &self,
+        ctx: &Context,
+        guild_id: GuildId,
+        current_game: bool,
+    ) -> (String, String, String) {
         let teams = vec![
             [
                 self.top[0],
@@ -254,10 +289,12 @@ impl Game {
             ],
         ];
         let mut return_string = Vec::new();
+        let mut players = String::new();
         for team in teams {
             let mut tmp = String::new();
             for (i, player) in team.iter().enumerate() {
-                let name = get_name(&player.0, &ctx, guild_id).await;
+                players.push_str(&format!("<@{}>", player.0));
+                let name = get_name(&player.0, ctx, guild_id).await;
                 match i {
                     0 => tmp.push_str(&TOP_EMOJI.lock().unwrap()),
                     1 => tmp.push_str(&JG_EMOJI.lock().unwrap()),
@@ -266,17 +303,23 @@ impl Game {
                     4 => tmp.push_str(&SUP_EMOJI.lock().unwrap()),
                     _ => panic!("Too many players in a team"),
                 };
-                if player.1 {
-                    tmp.push_str("✅ ");
-                } else {
-                    tmp.push_str(&LOADING_EMOJI);
+                if !current_game {
+                    if player.1 == 1 {
+                        tmp.push_str("✅ ");
+                    } else {
+                        tmp.push_str(&LOADING_EMOJI);
+                    }
                 }
                 tmp.push_str(&name);
                 tmp.push('\n');
             }
             return_string.push(tmp);
         }
-        (return_string[0].clone(), return_string[1].clone())
+        (
+            return_string[0].clone(),
+            return_string[1].clone(),
+            format!("||{}||\n", players),
+        )
     }
 }
 
@@ -291,6 +334,7 @@ impl QueueManager {
             players: HashMap::new(),
             current_games: Vec::new(),
             tentative_games: Vec::new(),
+            missing_roles: HashSet::new(),
         };
         let conn = DBCONNECTION.db_connection.get().unwrap();
         let result = get_players(&conn);
@@ -346,16 +390,50 @@ impl QueueManager {
         self.players.insert(discord_id, player);
     }
 
-    pub fn queue_player(&mut self, discord_id: UserId, role: &str) -> Result<(), &str> {
-        if !self.players.contains_key(&discord_id) {
-            return Err("Player not registered.");
+    fn check_player_in_game(&self, discord_id: UserId) -> Result<(), &str> {
+        if let Some(_) = self
+            .current_games
+            .iter()
+            .find(|game| game.player_in_game(&discord_id))
+        {
+            return Err(
+                "Player is currently in a game. Either score the game or wait for it to end",
+            );
         }
+        if let Some(_) = self
+            .tentative_games
+            .iter()
+            .find(|game| game.player_in_game(&discord_id))
+        {
+            return Err("My guy. ur queued for a game like cancel it or what???????🦧");
+        }
+        Ok(())
+    }
+
+    pub async fn is_game_ready(&self, game_id: i32) -> bool {
+        let game = self.tentative_games.iter().find(|game| game.id == game_id);
+        if game.is_none() {
+            return false;
+        }
+        let game = game.unwrap();
+        game.is_ready().await
+    }
+
+    pub fn queue_player(&mut self, discord_id: UserId, role: &str) -> Result<(), String> {
+        if !self.players.contains_key(&discord_id) {
+            return Err(String::from("Player not registered."));
+        }
+
+        if let Err(err) = self.check_player_in_game(discord_id) {
+            return Err(err.to_string());
+        }
+
         if let Some(p) = self.players.get_mut(&discord_id) {
             if p.queued.contains(&role.to_string()) {
-                return Err("Player is already in queue for this role");
+                return Err(String::from("Player is already in queue for this role"));
             }
             if p.queued.len() >= 2 {
-                return Err("Player is already in queue for two roles");
+                return Err(String::from("Player is already in queue for two roles"));
             }
             let role = role.to_lowercase();
             //TODO Add more aliases for roles
@@ -380,22 +458,19 @@ impl QueueManager {
                     p.queued.push("support".to_string());
                     self.support.push_back(discord_id);
                 }
-                _ => return Err("Invalid role"),
+                _ => return Err(String::from("Invalid role")),
             }
         } else {
-            return Err("Player is not registered");
+            return Err(String::from("Player is not registered"));
         }
         Ok(())
     }
 
-    //TODO correct some logic with storing player queue in two locations, might be better to just store it in one but check it profiler just incase
-    pub fn leave_queue(&mut self, discord_id: UserId, role: &str) -> Result<(), &str> {
+    pub fn leave_queue(&mut self, discord_id: UserId, role: &str) -> bool {
         let role = role.to_lowercase();
         let discord_id = &discord_id;
         if let Some(player) = self.players.get_mut(discord_id) {
             match role.as_str() {
-                //TODO add more aliases for roles
-                //FIXME doesn't check for aliases
                 "top" => {
                     self.top.retain(|player| player != discord_id);
                     player.queued.retain(|role| role != "top");
@@ -425,8 +500,9 @@ impl QueueManager {
                     player.queued.clear();
                 }
             }
+            return true;
         }
-        Ok(())
+        false
     }
 
     pub async fn number_of_unique_players(&self) -> usize {
@@ -447,6 +523,44 @@ impl QueueManager {
             unique_players.insert(player);
         }
         unique_players.len()
+    }
+
+    pub async fn cancel_game(&mut self, user: UserId, ctx: &Context, queue_id: ChannelId) -> bool {
+        //find game with user in it
+        let game_position = self
+            .current_games
+            .iter()
+            .position(|game| game.player_in_game(&user));
+        if game_position.is_none() {
+            return false;
+        }
+        let game_position = game_position.unwrap();
+        let mut game = self.current_games.swap_remove(game_position);
+        game.update_status(user, &ReactionType::Unicode(String::from("❌")))
+            .await
+            .unwrap_err();
+        let mut team = game.team(0);
+        team.extend(game.team(1).iter());
+        if game.canceled {
+            team.retain(|x| x.2 != 2);
+        } else {
+            team.retain(|x| x.2 != 1);
+        }
+        for player in team.iter() {
+            match player.1 {
+                0 => self.top.push_front(player.0),
+                1 => self.jungle.push_front(player.0),
+                2 => self.mid.push_front(player.0),
+                3 => self.bot.push_front(player.0),
+                4 => self.support.push_front(player.0),
+                _ => panic!("Invalid role"),
+            }
+        }
+        let _ = ctx
+            .http
+            .delete_message(u64::from(queue_id), u64::from(game.message_id))
+            .await;
+        true
     }
 
     async fn find_game(&mut self) -> Game {
@@ -629,21 +743,21 @@ impl QueueManager {
         }
         for (i, player) in final_team[0].iter().enumerate() {
             match i {
-                0 => self.leave_queue(*player, "").unwrap(),
-                1 => self.leave_queue(*player, "").unwrap(),
-                2 => self.leave_queue(*player, "").unwrap(),
-                3 => self.leave_queue(*player, "").unwrap(),
-                4 => self.leave_queue(*player, "").unwrap(),
+                0 => self.leave_queue(*player, ""),
+                1 => self.leave_queue(*player, ""),
+                2 => self.leave_queue(*player, ""),
+                3 => self.leave_queue(*player, ""),
+                4 => self.leave_queue(*player, ""),
                 _ => panic!("Invalid index"),
             };
         }
         for (i, player) in final_team[1].iter().enumerate() {
             match i {
-                0 => self.leave_queue(*player, "").unwrap(),
-                1 => self.leave_queue(*player, "").unwrap(),
-                2 => self.leave_queue(*player, "").unwrap(),
-                3 => self.leave_queue(*player, "").unwrap(),
-                4 => self.leave_queue(*player, "").unwrap(),
+                0 => self.leave_queue(*player, ""),
+                1 => self.leave_queue(*player, ""),
+                2 => self.leave_queue(*player, ""),
+                3 => self.leave_queue(*player, ""),
+                4 => self.leave_queue(*player, ""),
                 _ => panic!("Invalid index"),
             };
         }
@@ -704,9 +818,8 @@ impl QueueManager {
         }
         (false, roles)
     }
-    pub async fn check_for_game(&mut self) -> Option<String> {
+    pub async fn check_for_game(&mut self) -> bool {
         let missing_roles = self.check_duplicates();
-        //TODO Check for duplicate players across roles
         if self.top.len() >= 2
             && self.jungle.len() >= 2
             && self.mid.len() >= 2
@@ -717,7 +830,9 @@ impl QueueManager {
         {
             info!("Starting game");
             let game = self.find_game().await;
+            info!("Found game");
             self.tentative_games.push(game);
+            true
         } else {
             //TODO Roles are not shown in order but like cba
             let mut missing_roles = missing_roles.1;
@@ -736,18 +851,32 @@ impl QueueManager {
             if self.support.len() < 2 {
                 missing_roles.insert("Support");
             }
-            if !missing_roles.is_empty() {
-                return Some(missing_roles.iter().join(", "));
+            self.missing_roles = missing_roles.iter().map(|x| x.to_string()).collect();
+            false
+        }
+    }
+
+    pub async fn get_missing_roles(&self) -> Option<String> {
+        if self.missing_roles.is_empty() {
+            return None;
+        }
+        Some(self.missing_roles.iter().join(", "))
+    }
+
+    pub async fn get_side(&self, player: UserId) -> (i32, String) {
+        for game in self.current_games.iter() {
+            if game.player_in_game(&player) {
+                return game.get_side(player);
             }
         }
-        None
+        (0, String::from(""))
     }
 
     pub async fn display(&self, ctx: &Context, guild_id: GuildId) -> String {
         let mut output = String::new();
         output.push_str(&TOP_EMOJI.lock().unwrap());
         for player in self.top.iter() {
-            let name = get_name(player, &ctx, guild_id).await;
+            let name = get_name(player, ctx, guild_id).await;
             output.push_str(&name);
             output.push(' ');
         }
@@ -755,7 +884,7 @@ impl QueueManager {
 
         output.push_str(&JG_EMOJI.lock().unwrap());
         for player in self.jungle.iter() {
-            let name = get_name(player, &ctx, guild_id).await;
+            let name = get_name(player, ctx, guild_id).await;
             output.push_str(&name);
             output.push(' ');
         }
@@ -763,7 +892,7 @@ impl QueueManager {
 
         output.push_str(&MID_EMOJI.lock().unwrap());
         for player in self.mid.iter() {
-            let name = get_name(player, &ctx, guild_id).await;
+            let name = get_name(player, ctx, guild_id).await;
             output.push_str(&name);
             output.push(' ');
         }
@@ -771,7 +900,7 @@ impl QueueManager {
 
         output.push_str(&BOT_EMOJI.lock().unwrap());
         for player in self.bot.iter() {
-            let name = get_name(player, &ctx, guild_id).await;
+            let name = get_name(player, ctx, guild_id).await;
             output.push_str(&name);
             output.push(' ');
         }
@@ -779,7 +908,7 @@ impl QueueManager {
 
         output.push_str(&SUP_EMOJI.lock().unwrap());
         for player in self.support.iter() {
-            let name = get_name(player, &ctx, guild_id).await;
+            let name = get_name(player, ctx, guild_id).await;
             output.push_str(&name);
             output.push(' ');
         }
@@ -787,24 +916,236 @@ impl QueueManager {
         output
     }
 
+    pub async fn get_tentative_games(
+        &self,
+        ctx: &Context,
+        guild_id: GuildId,
+    ) -> Vec<(i32, MessageId, (String, String, String), OrderedFloat<f64>)> {
+        let mut result = Vec::new();
+        for game in self.tentative_games.iter() {
+            let body = game.display(ctx, guild_id, false).await;
+            result.push((game.id, game.message_id, body, game.expected_winrate));
+        }
+        result
+    }
+
+    pub async fn win(&mut self, game: (i32, String)) {
+        let game_final = self.current_games.swap_remove(
+            self.current_games
+                .iter()
+                .position(|x| x.id == game.0)
+                .unwrap(),
+        );
+        let blue = vec![
+            game_final.top[0],
+            game_final.jungle[0],
+            game_final.mid[0],
+            game_final.bot[0],
+            game_final.support[0],
+        ];
+        let red = vec![
+            game_final.top[1],
+            game_final.jungle[1],
+            game_final.mid[1],
+            game_final.bot[1],
+            game_final.support[1],
+        ];
+        let blue_ratings: Vec<Rating> = blue
+            .iter()
+            .map(|x| self.players.get(&x.0).unwrap().rating.clone())
+            .collect();
+        let red_ratings: Vec<Rating> = red
+            .iter()
+            .map(|x| self.players.get(&x.0).unwrap().rating.clone())
+            .collect();
+        let new_ratings;
+        if game.1 == "Blue" {
+            new_ratings = rate(&[blue_ratings, red_ratings]);
+        } else {
+            new_ratings = rate(&[red_ratings, blue_ratings]);
+        }
+        for team in new_ratings {
+            for player in team {
+                let user_id = player.user_id;
+                let rating = player.clone();
+                self.players.get_mut(&user_id).unwrap().rating = player;
+                let conn = DBCONNECTION.db_connection.get().unwrap();
+                update_rating(&conn, &user_id, &rating);
+            }
+        }
+        let conn = DBCONNECTION.db_connection.get().unwrap();
+        update_game(&conn, &game_final, game.1 == "Blue");
+    }
+
+    pub async fn get_emebed_body(
+        &self,
+        ctx: &Context,
+        guild_id: GuildId,
+        game_id: i32,
+    ) -> (String, String, String) {
+        let game = self.tentative_games.iter().find(|x| x.id == game_id);
+        if game.is_none() {
+            return ("".to_string(), "".to_string(), "".to_string());
+        }
+        let game = game.unwrap();
+        let body = game.display(ctx, guild_id, false).await;
+        body
+    }
+
+    pub async fn update_status(
+        &mut self,
+        user_reactor: UserId,
+        emoji: &ReactionType,
+        game_id: i32,
+    ) -> Result<(), ()> {
+        let game = self.tentative_games.iter_mut().find(|x| x.id == game_id);
+        if game.is_none() {
+            return Ok(());
+        }
+        let game = game.unwrap();
+        game.update_status(user_reactor, emoji).await
+    }
+
+    pub async fn unready(
+        &mut self,
+        user_reactor: UserId,
+        emoji: &ReactionType,
+        game_id: i32,
+    ) -> bool {
+        let game = self.tentative_games.iter_mut().find(|x| x.id == game_id);
+        if game.is_none() {
+            return false;
+        }
+        let game = game.unwrap();
+        game.unready(user_reactor, emoji).await
+    }
+
+    pub async fn set_message_id(&mut self, id: i32, message_id: MessageId) {
+        for game in self.tentative_games.iter_mut() {
+            if game.id == id {
+                game.message_id = message_id;
+            }
+        }
+    }
+    pub async fn clear_queue(&mut self) {
+        self.top.clear();
+        self.jungle.clear();
+        self.mid.clear();
+        self.bot.clear();
+        self.support.clear();
+    }
+
+    async fn get_opgg_links(&self, game: &Game, riot: &str) -> String {
+        let mut players_summoner_names = Vec::new();
+        let teams = vec![
+            [
+                game.top[0],
+                game.jungle[0],
+                game.mid[0],
+                game.bot[0],
+                game.support[0],
+            ],
+            [
+                game.top[1],
+                game.jungle[1],
+                game.mid[1],
+                game.bot[1],
+                game.support[1],
+            ],
+        ];
+        let riot_api = RiotApi::new(riot);
+        let temp_name = String::from("hifsiao");
+        for team in teams.iter() {
+            let mut tmp = Vec::new();
+            for player in team.iter() {
+                let accounts = &self
+                    .players
+                    .iter()
+                    .find(|x| u64::from(*x.0) == u64::from(player.0))
+                    .unwrap()
+                    .1
+                    .riot_accounts;
+                let account = accounts.first().unwrap_or(&temp_name);
+                let result = riot_api.summoner_v4().get_by_puuid(NA1, &account).await;
+                if result.is_err() {
+                    continue;
+                }
+                let name = result.unwrap().name;
+                tmp.push(name);
+            }
+            players_summoner_names.push(tmp.join(", "));
+        }
+        format!("**\nBlue OP.GG**: https://na.op.gg/multisearch/na?summoners={}\n**Red OP.GG**: https://na.op.gg/multisearch/na?summoners={}", players_summoner_names[0], players_summoner_names[1])
+    }
+
+    pub async fn start_game(
+        &mut self,
+        game_id: &i32,
+        ctx: &Context,
+        queue_id: ChannelId,
+        message_id: MessageId,
+        guild_id: GuildId,
+        prefix: &str,
+        riot: &str,
+    ) {
+        let index = self.tentative_games.iter().position(|x| x.id == *game_id);
+        if index.is_none() {
+            return;
+        }
+        let index = index.unwrap();
+        let game = self.tentative_games.swap_remove(index);
+        let body = game.display(ctx, guild_id, true).await;
+        let opgg_links = self.get_opgg_links(&game, riot).await;
+        queue_id
+            .delete_reaction_emoji(
+                &ctx.http,
+                message_id,
+                ReactionType::Unicode(String::from("✅")),
+            )
+            .await
+            .unwrap();
+        queue_id
+            .delete_reaction_emoji(
+                &ctx.http,
+                message_id,
+                ReactionType::Unicode(String::from("❌")),
+            )
+            .await
+            .unwrap();
+        queue_id
+            .edit_message(&ctx.http, message_id, |m| {
+                m.content("")
+                .embed(|e| {
+                    e.title("📢 Game accepted 📢")
+                        .description(&format!("Game {} has been validated and added to the database\nOnce the game has been played, one of the winners can score it with `{}won`\nIf you wish to cancel the game, use `{}cancel`", game.id, prefix, prefix))
+                        .field("BLUE", body.0, true)
+                        .field("RED", body.1, true)
+                }).content(opgg_links)
+            })
+            .await
+            .unwrap();
+        //TODO add the game to the database
+        self.current_games.push(game);
+    }
+
     pub async fn remove_game(
         &mut self,
         game_id: &i32,
-        afk_players: &HashSet<UserId>,
         ctx: &Context,
         queue_id: ChannelId,
+        message_id: MessageId,
     ) {
         let game = self.tentative_games.iter().find(|game| game.id == *game_id);
-        if game.is_none() {
-            return;
-        }
         match game {
             Some(game) => {
-                let mut team1 = game.team(0).clone();
-                let mut team2 = game.team(1).clone();
-                team1.retain(|player| !afk_players.contains(&player.0));
-                team2.retain(|player| !afk_players.contains(&player.0));
-                for player in team1.iter().merge(team2.iter()) {
+                let mut team = game.team(0);
+                team.extend(game.team(1).iter());
+                if game.canceled {
+                    team.retain(|x| x.2 != 2);
+                } else {
+                    team.retain(|x| x.2 != 1);
+                }
+                for player in team.iter() {
                     match player.1 {
                         0 => self.top.push_front(player.0),
                         1 => self.jungle.push_front(player.0),
@@ -814,22 +1155,13 @@ impl QueueManager {
                         _ => panic!("Invalid role"),
                     }
                 }
-                let game_index = self
-                    .tentative_games
-                    .iter()
-                    .position(|game| game.id == *game_id);
-                if let Some(game_index) = game_index {
-                    let game_message = self.tentative_games.swap_remove(game_index).message_id;
-                    //delte message
-                    let _ = ctx
-                        .http
-                        .delete_message(u64::from(queue_id), u64::from(game_message))
-                        .await;
-                }
+                self.tentative_games.retain(|x| x.id != *game_id);
+                let _ = ctx
+                    .http
+                    .delete_message(u64::from(queue_id), u64::from(message_id))
+                    .await;
             }
-            None => {
-                return;
-            }
+            None => {}
         }
     }
 }
@@ -1185,7 +1517,7 @@ pub async fn get_msl_points(
     Ok(player_points.into())
 }
 
-async fn get_name(player: &UserId, ctx: &Context, guild_id: GuildId) -> String {
+async fn get_name(player: &UserId, ctx: &Context, _guild_id: GuildId) -> String {
     let name = if player == &0
         || player == &1
         || player == &2
