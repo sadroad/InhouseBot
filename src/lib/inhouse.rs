@@ -1518,28 +1518,28 @@ pub async fn get_msl_points(
 }
 
 async fn get_name(player: &UserId, ctx: &Context, _guild_id: GuildId) -> String {
-    let name = if player == &0
-        || player == &1
-        || player == &2
-        || player == &3
-        || player == &4
-        || player == &5
-        || player == &6
-        || player == &7
-        || player == &8
-        || player == &9
-    {
-        format!("Unknown {}", player)
-    } else {
-        player.to_user(&ctx.http).await.unwrap().name
-    };
-    // let username = player.to_user(&ctx.http).await.unwrap().name;
-    // let name = player
-    //             .to_user(&ctx.http)
-    //             .await
-    //             .unwrap()
-    //             .nick_in(&ctx.http, guild_id)
-    //             .await
-    //             .unwrap_or(username);
+    // let name = if player == &0
+    //     || player == &1
+    //     || player == &2
+    //     || player == &3
+    //     || player == &4
+    //     || player == &5
+    //     || player == &6
+    //     || player == &7
+    //     || player == &8
+    //     || player == &9
+    // {
+    //     format!("Unknown {}", player)
+    // } else {
+    //     player.to_user(&ctx.http).await.unwrap().name
+    // };
+    let username = player.to_user(&ctx.http).await.unwrap().name;
+    let name = player
+                .to_user(&ctx.http)
+                .await
+                .unwrap()
+                .nick_in(&ctx.http, guild_id)
+                .await
+                .unwrap_or(username);
     name
 }
