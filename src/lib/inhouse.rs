@@ -11,12 +11,13 @@ use riven::consts::{Division, QueueType, Tier};
 use riven::RiotApi;
 use scraper::{Html, Selector};
 use serde_json::Value;
-use serenity::model::channel::ReactionType;
+use serenity::model::channel::{ReactionType};
 
 use serenity::model::id::{ChannelId, GuildId, MessageId, UserId};
 use serenity::prelude::Context;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
+use tokio::time::{sleep, Duration};
 use tracing::log::info;
 
 lazy_static! {
@@ -929,27 +930,31 @@ impl QueueManager {
         result
     }
 
-    pub async fn win(&mut self, game: (i32, String)) {
+    pub async fn requeue_players(&self, game_id: i32) -> String {
+        let game = self.current_games.iter().find(|x| x.id == game_id);
+        if game.is_none() {
+            return String::from("Game not found");
+        }
+        let game = game.unwrap();
+        let blue = game.team(0);
+        let red = game.team(1);
+        let teams = blue.iter().chain(red.iter());
+        let mut output = String::new();
+        for player in teams {
+            output.push_str(&format!("<@{}>", player.0));
+        }
+        output
+    }
+
+    pub async fn win(&mut self, game: (i32, String), ctx: &Context, queue_id: ChannelId, dont_queue: Vec<UserId>) {
         let game_final = self.current_games.swap_remove(
             self.current_games
                 .iter()
                 .position(|x| x.id == game.0)
                 .unwrap(),
         );
-        let blue = vec![
-            game_final.top[0],
-            game_final.jungle[0],
-            game_final.mid[0],
-            game_final.bot[0],
-            game_final.support[0],
-        ];
-        let red = vec![
-            game_final.top[1],
-            game_final.jungle[1],
-            game_final.mid[1],
-            game_final.bot[1],
-            game_final.support[1],
-        ];
+        let blue = game_final.team(0);
+        let red = game_final.team(1);
         let blue_ratings: Vec<Rating> = blue
             .iter()
             .map(|x| self.players.get(&x.0).unwrap().rating.clone())
@@ -975,6 +980,45 @@ impl QueueManager {
         }
         let conn = DBCONNECTION.db_connection.get().unwrap();
         update_game(&conn, &game_final, game.1 == "Blue");
+        for team in vec![blue,red] {
+            for player in team {
+                let user_id = player.0;
+                if !dont_queue.contains(&user_id) {
+                    let mut role = "";
+                    match player.2 {
+                        0 => {
+                            role = "top";
+                        },
+                        1 => {
+                            role = "jungle";
+                        },
+                        2 => {
+                            role = "mid";
+                        },
+                        3 => {
+                            role = "bot";
+                        },
+                        4 => {
+                            role = "support";
+                        },
+                        _ => {}
+                    }
+                    let result = self.queue_player(user_id, role);
+                            match result {
+                                Err(e) => {
+                                    let response = queue_id.say(&ctx.http, format!("{}\nError: {}", user_id, e)).await.unwrap();
+                                    sleep(Duration::from_secs(3)).await;
+                                    response.delete(&ctx.http).await.unwrap();
+                                },
+                                _ => {},
+                            }
+                }
+            }
+        }
+        let _ = ctx
+                    .http
+                    .delete_message(u64::from(queue_id), u64::from(game_final.message_id))
+                    .await;
     }
 
     pub async fn get_emebed_body(
@@ -1517,7 +1561,7 @@ pub async fn get_msl_points(
     Ok(player_points.into())
 }
 
-async fn get_name(player: &UserId, ctx: &Context, _guild_id: GuildId) -> String {
+async fn get_name(player: &UserId, ctx: &Context, guild_id: GuildId) -> String {
     // let name = if player == &0
     //     || player == &1
     //     || player == &2

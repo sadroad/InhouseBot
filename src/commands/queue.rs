@@ -217,11 +217,43 @@ pub async fn won(ctx: &Context, msg: &Message) -> CommandResult {
                                     sleep(Duration::from_secs(3)).await;
                                     response.delete(&ctx.http).await?;
                                     //TODO win function in queue manager
+                                    let mentions;
+                                    {
+                                        let data = ctx.data.read().await;
+                                        let queue = data.get::<QueueManager>().unwrap();
+                                        let queue = queue.lock().await;
+                                        mentions = queue.requeue_players(game.0).await;                 
+                                    }
+                                    let no_requeue = channel_id.say(&ctx.http, &format!("{}\n I will requeue you in 5 seconds. If you **dont** want to be queued, react with a ❌", mentions)).await?;
+                                    no_requeue.react(&ctx.http, '❌').await?;
+                                    let mut collector = EventCollectorBuilder::new(&ctx)
+                                        .add_event_type(EventType::ReactionAdd)
+                                        .add_event_type(EventType::ReactionRemove)
+                                        .add_message_id(no_requeue.id)
+                                        .timeout(Duration::from_secs(10))
+                                        .build()
+                                        .unwrap();
+                                    let mut dont_queue = Vec::new();
+                                    while let Some(event) = collector.next().await {
+                                        match event.as_ref() {
+                                            Event::ReactionAdd(reaction) => {
+                                                if reaction.reaction.emoji == ReactionType::Unicode(String::from("❌")) {
+                                                    dont_queue.push(reaction.reaction.user_id.unwrap());
+                                                }
+                                            },
+                                            Event::ReactionRemove(reaction) => {
+                                                if reaction.reaction.emoji == ReactionType::Unicode(String::from("❌")) {
+                                                    dont_queue.swap_remove(dont_queue.iter().position(|&x| x == reaction.reaction.user_id.unwrap()).unwrap());
+                                                }
+                                            }
+                                            _ =>{}
+                                        }
+                                    }
                                     {
                                         let data = ctx.data.read().await;
                                         let queue = data.get::<QueueManager>().unwrap();
                                         let mut queue = queue.lock().await;
-                                        queue.win(game).await;
+                                        queue.win(game, ctx, channel_id, dont_queue).await;
                                     }
                                     display(ctx, guild_id).await;
                                     break;
