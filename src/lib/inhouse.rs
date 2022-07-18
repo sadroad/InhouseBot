@@ -469,6 +469,9 @@ impl QueueManager {
     }
 
     pub fn leave_queue(&mut self, discord_id: UserId, role: &str) -> bool {
+        if self.players.get(&discord_id).is_none() {
+            return false;
+        }
         let role = role.to_lowercase();
         let discord_id = &discord_id;
         if let Some(player) = self.players.get_mut(discord_id) {

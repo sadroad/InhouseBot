@@ -459,7 +459,7 @@ pub async fn vote_remove(ctx: &Context, msg: &Message, mut args: Args) -> Comman
                         prefix = data.get::<Prefix>().unwrap().clone();
                     }
                     let response = msg
-                        .reply_mention(&ctx.http, format!("Usage: {}remove @user",prefix))
+                        .reply_mention(&ctx.http, format!("Usage: {}remove @user", prefix))
                         .await?;
                     sleep(Duration::from_secs(3)).await;
                     response.delete(&ctx.http).await?;
