@@ -39,6 +39,8 @@ lazy_static! {
     };
     pub static ref LOADING_EMOJI: String =
         env::var("LOADING_EMOJI").unwrap_or_else(|_| "🔍".to_string());
+    pub static ref QUEUE_MANAGER: Arc<Mutex<QueueManager>> =
+        Arc::new(Mutex::new(QueueManager::new()));
 }
 
 pub struct ShardManagerContainer;
@@ -50,10 +52,6 @@ pub struct Prefix;
 
 impl TypeMapKey for Prefix {
     type Value = String;
-}
-
-impl TypeMapKey for QueueManager {
-    type Value = Arc<Mutex<QueueManager>>;
 }
 
 pub struct QueueEmbed;
@@ -150,8 +148,6 @@ async fn main() {
 
     let riot_key = env::var("RGAPI_KEY").expect("Expect to find a riot api key in the environment");
 
-    let manager = QueueManager::new();
-
     let framework = StandardFramework::new()
         .configure(|c| c.prefix(&prefix))
         .group(&GENERAL_GROUP)
@@ -177,7 +173,6 @@ async fn main() {
         let mut data = client.data.write().await;
         data.insert::<ShardManagerContainer>(client.shard_manager.clone());
         data.insert::<Prefix>(prefix);
-        data.insert::<QueueManager>(Arc::new(Mutex::new(manager)));
         data.insert::<QueueChannel>(Arc::new(Mutex::new(queue_channel)));
         data.insert::<QueueEmbed>(Arc::new(Mutex::new(MessageId(0))));
         data.insert::<Riot>(riot_key);

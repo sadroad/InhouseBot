@@ -1,5 +1,5 @@
 use crate::lib::inhouse::get_msl_points;
-use crate::{QueueManager, Riot};
+use crate::{Riot, QUEUE_MANAGER};
 use riven::consts::PlatformRoute::NA1;
 use riven::RiotApi;
 use serenity::framework::standard::{macros::command, CommandResult};
@@ -19,9 +19,7 @@ pub async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
 pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
     let author = &msg.author;
     {
-        let data = ctx.data.read().await;
-        let queue = data.get::<QueueManager>().unwrap();
-        let queue = queue.lock().await;
+        let queue = QUEUE_MANAGER.lock().await;
         let player = msg.author.id;
         if let Err(e) = queue.check_registered_player(player) {
             let response = msg
@@ -120,9 +118,7 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
     let mut riot_accounts: Vec<String> = Vec::new();
     let mut opgg_list: Vec<(String, String, i32)> = Vec::new();
     for (name, puuid, id, level) in puuids {
-        let data = ctx.data.read().await;
-        let queue = data.get::<QueueManager>().unwrap();
-        let queue = queue.lock().await;
+        let queue = QUEUE_MANAGER.lock().await;
         if queue.check_puuid(&puuid).is_err() {
             let response = dm
                 .channel_id
@@ -168,9 +164,7 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
         return Ok(());
     }
     {
-        let data = ctx.data.read().await;
-        let queue = data.get::<QueueManager>().unwrap();
-        let mut queue = queue.lock().await;
+        let mut queue = QUEUE_MANAGER.lock().await;
         let player = msg.author.id;
         queue.register_player(player, riot_accounts, msl_simga_value);
     }

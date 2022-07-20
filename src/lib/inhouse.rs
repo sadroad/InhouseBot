@@ -325,6 +325,12 @@ impl Game {
     }
 }
 
+impl Default for QueueManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl QueueManager {
     pub fn new() -> QueueManager {
         let mut queue = QueueManager {
@@ -469,7 +475,12 @@ impl QueueManager {
     }
 
     pub fn leave_queue(&mut self, discord_id: UserId, role: &str) -> bool {
-        if self.players.get(&discord_id).is_none() {
+        let player = self.players.get(&discord_id);
+        if player.is_none() {
+            return false;
+        }
+        let player = player.unwrap();
+        if player.queued.is_empty() {
             return false;
         }
         let role = role.to_lowercase();

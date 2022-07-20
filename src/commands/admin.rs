@@ -1,5 +1,4 @@
-use crate::lib::inhouse::QueueManager;
-use crate::{Prefix, QueueChannel};
+use crate::{Prefix, QueueChannel, QUEUE_MANAGER};
 
 use super::queue::display;
 
@@ -198,9 +197,7 @@ async fn role_emojis(ctx: &Context, msg: &Message, mut args: Args) -> CommandRes
 #[command]
 async fn test(ctx: &Context, msg: &Message) -> CommandResult {
     {
-        let data = ctx.data.read().await;
-        let queue = data.get::<QueueManager>().unwrap();
-        let mut queue = queue.lock().await;
+        let mut queue = QUEUE_MANAGER.lock().await;
         //register 10 fake players
         info!("Registering 10 fake players");
         for i in 0..10 {
@@ -254,9 +251,7 @@ pub async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResu
             .replace('>', "");
         let user = user.parse::<UserId>().unwrap();
         {
-            let data = ctx.data.read().await;
-            let queue = data.get::<QueueManager>().unwrap();
-            let mut queue = queue.lock().await;
+            let mut queue = QUEUE_MANAGER.lock().await;
             queue.leave_queue(user, "");
         }
         display(ctx, msg.guild_id.unwrap()).await;
@@ -267,9 +262,7 @@ pub async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResu
 #[command]
 pub async fn clear(ctx: &Context, msg: &Message) -> CommandResult {
     {
-        let data = ctx.data.read().await;
-        let queue = data.get::<QueueManager>().unwrap();
-        let mut queue = queue.lock().await;
+        let mut queue = QUEUE_MANAGER.lock().await;
         queue.clear_queue().await;
     }
     display(ctx, msg.guild_id.unwrap()).await;
