@@ -17,17 +17,19 @@ use crate::lib::inhouse::*;
 use std::env;
 use std::sync::Arc;
 
+use lazy_static::lazy_static;
 use serenity::async_trait;
 use serenity::client::bridge::gateway::ShardManager;
 use serenity::framework::standard::macros::group;
 use serenity::framework::StandardFramework;
+use serenity::model::application::interaction::Interaction;
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
 use serenity::model::id::{ChannelId, MessageId};
+use serenity::model::prelude::command::CommandOptionType;
+use serenity::model::Permissions;
 use serenity::prelude::*;
 use tokio::time::{sleep, Duration};
-
-use lazy_static::lazy_static;
 
 use tracing::{error, info};
 
@@ -79,7 +81,60 @@ impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, ready: Ready) {
         info!("Connected as {}", ready.user.name);
         if !ready.guilds.is_empty() {
-            display(&ctx, ready.guilds[0].id).await;
+            let guild_id = ready.guilds[0].id;
+            display(&ctx, guild_id).await;
+            let commands = guild_id
+                .set_application_commands(&ctx.http, |commands| {
+                    commands
+                        .create_application_command(|command| {
+                            command.name("ping").description("A ping command.")
+                        })
+                        .create_application_command(|command| {
+                            command
+                                .name("register")
+                                .description("Register yourself to use the queue")
+                                .dm_permission(false)
+                        })
+                        .create_application_command(|command| {
+                            command
+                                .name("clear")
+                                .description("Clear the queue without a vote")
+                                .dm_permission(false)
+                                .default_member_permissions(Permissions::ADMINISTRATOR)
+                        })
+                        .create_application_command(|command| {
+                            command
+                                .name("remove")
+                                .description("Remove a user from the queue without a vote")
+                                .dm_permission(false)
+                                .default_member_permissions(Permissions::ADMINISTRATOR)
+                                .create_option(|option| {
+                                    option
+                                        .name("user")
+                                        .description("The user to remove")
+                                        .required(true)
+                                        .kind(CommandOptionType::User)
+                                })
+                        })
+                })
+                .await;
+            if let Err(e) = commands {
+                error!("Error setting application commands: {}", e);
+            }
+        }
+    }
+
+    async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
+        if let Interaction::ApplicationCommand(command) = interaction {
+            if let Err(e) = match command.data.name.as_str() {
+                "ping" => ping(&ctx, &command).await,
+                "register" => register(&ctx, &command).await,
+                "clear" => clear(&ctx, &command).await,
+                "remove" => remove(&ctx, &command).await,
+                _ => Ok(()),
+            } {
+                error!("Error handling application command: {}", e);
+            }
         }
     }
 
@@ -128,11 +183,11 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(ping, queue, leave, register, won, cancel, vote_clear, vote_remove)]
+#[commands(queue, leave, won, cancel, vote_clear, vote_remove)]
 struct General;
 
 #[group]
-#[commands(mark, unmark, role_emojis, test, remove, clear)]
+#[commands(mark, unmark, role_emojis, test)]
 #[prefix("admin")]
 #[required_permissions("ADMINISTRATOR")]
 struct Admin;

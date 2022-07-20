@@ -4,6 +4,8 @@ use super::queue::display;
 
 use serenity::framework::standard::{macros::command, Args, CommandResult};
 use serenity::http::Http;
+use serenity::model::application::interaction::application_command::ApplicationCommandInteraction;
+use serenity::model::prelude::interaction::application_command::CommandDataOptionValue;
 use serenity::model::prelude::*;
 use serenity::prelude::*;
 use tokio::time::{sleep, Duration};
@@ -228,43 +230,47 @@ async fn test(ctx: &Context, msg: &Message) -> CommandResult {
     Ok(())
 }
 
-#[command]
-pub async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    if args.len() != 1 {
-        let prefix;
-        {
-            let data = ctx.data.read().await;
-            prefix = data.get::<Prefix>().unwrap().clone();
-        }
-        let response = msg
-            .reply_ping(&ctx.http, format!("Usage: {}admin remove @user", prefix))
-            .await?;
-        sleep(Duration::from_secs(3)).await;
-        response.delete(&ctx.http).await?;
-        return Ok(());
-    } else {
-        dbg!(&args);
-        let user = args
-            .single::<String>()
-            .unwrap()
-            .replace("<@", "")
-            .replace('>', "");
-        let user = user.parse::<UserId>().unwrap();
+pub async fn remove(
+    ctx: &Context,
+    command: &ApplicationCommandInteraction,
+) -> Result<(), SerenityError> {
+    command.defer(&ctx.http).await.unwrap();
+    command
+        .delete_original_interaction_response(&ctx.http)
+        .await
+        .unwrap();
+    if let CommandDataOptionValue::User(user, _member) = command
+        .data
+        .options
+        .get(0)
+        .expect("Expected user")
+        .resolved
+        .as_ref()
+        .expect("Expected user object")
+    {
+        let user = user.id;
         {
             let mut queue = QUEUE_MANAGER.lock().await;
             queue.leave_queue(user, "");
         }
-        display(ctx, msg.guild_id.unwrap()).await;
+        display(ctx, command.guild_id.unwrap()).await;
     }
     Ok(())
 }
 
-#[command]
-pub async fn clear(ctx: &Context, msg: &Message) -> CommandResult {
+pub async fn clear(
+    ctx: &Context,
+    command: &ApplicationCommandInteraction,
+) -> Result<(), SerenityError> {
+    command.defer(&ctx.http).await.unwrap();
+    command
+        .delete_original_interaction_response(&ctx.http)
+        .await
+        .unwrap();
     {
         let mut queue = QUEUE_MANAGER.lock().await;
         queue.clear_queue().await;
     }
-    display(ctx, msg.guild_id.unwrap()).await;
+    display(ctx, command.guild_id.unwrap()).await;
     Ok(())
 }
