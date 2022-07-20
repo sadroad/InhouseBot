@@ -1,13 +1,17 @@
-FROM rust:1.62 AS builder
+FROM lukemathwalker/cargo-chef:latest-rust-1.62 as chef
+WORKDIR /app
+
+FROM chef as PLANNER
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef as BUILDER
 RUN USER=root cargo new --bin bot
 WORKDIR /bot
-COPY ./Cargo.lock ./Cargo.lock
-COPY ./Cargo.toml ./Cargo.toml
-RUN cargo build --release && rm src/*.rs
-COPY ./src ./src
-COPY ./migrations ./migrations
-RUN rm ./target/release/deps/bot*
-RUN cargo build -v --release
+COPY --from=PLANNER /app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
+COPY . .
+RUN cargo build --release
 
 FROM debian:bullseye-slim
 COPY --from=builder /bot/target/release/bot /usr/src/bot
