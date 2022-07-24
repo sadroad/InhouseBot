@@ -1,553 +1,519 @@
 use crate::{Prefix, QueueChannel, QueueEmbed, Riot, QUEUE_MANAGER};
 
 use serenity::collector::EventCollectorBuilder;
-use serenity::framework::standard::{macros::command, Args, CommandResult};
 use serenity::futures::StreamExt;
+use serenity::model::application::interaction::application_command::ApplicationCommandInteraction;
+use serenity::model::application::interaction::InteractionResponseType;
 use serenity::model::id::MessageId;
+use serenity::model::prelude::interaction::application_command::CommandDataOptionValue;
 use serenity::model::prelude::*;
 use serenity::prelude::*;
 
 use async_recursion::async_recursion;
 use tokio::task;
 use tokio::time::{sleep, Duration};
+use tracing::error;
 
-#[command]
-#[aliases("Queue")]
-pub async fn queue(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    dbg!("before check");
-    match check_queue_channel(ctx, msg).await {
-        Ok(value) => {
-            if value {
-                dbg!("after check");
-                if args.len() != 1 {
-                    let prefix;
-                    {
-                        let data = ctx.data.read().await;
-                        prefix = data.get::<Prefix>().unwrap().clone();
-                    }
-                    let response = msg
-                        .reply_mention(&ctx.http, &format!("Usage: {}queue <role>", prefix))
-                        .await?;
-                    sleep(Duration::from_secs(3)).await;
-                    response.delete(&ctx.http).await?;
-                } else {
-                    dbg!("args passed");
-                    let role = args.single::<String>().unwrap();
-                    let result;
-                    let player = msg.author.id;
-                    {
-                        let mut queue = QUEUE_MANAGER.lock().await;
-                        dbg!("after lock");
-                        dbg!("queing player");
-                        result = queue.queue_player(player, &role);
-                    }
-                    if let Err(e) = result {
-                        dbg!("error queuing player");
-                        let response = msg
-                            .reply_mention(&ctx.http, &format!("Error: {}", e))
-                            .await?;
-                        sleep(Duration::from_secs(3)).await;
-                        response.delete(&ctx.http).await?;
-                        msg.delete(&ctx.http).await?;
-                        return Ok(());
-                    }
-                    let guild_id = msg.guild_id.unwrap();
-                    //only used to get variables for discord api
-                    let tmp_ctx = ctx.clone();
-                    task::spawn(async move {
-                        //2 hours in seconds
-                        sleep(Duration::from_secs(7200)).await;
-                        let result;
-                        {
-                            let mut queue = QUEUE_MANAGER.lock().await;
-                            result = queue.leave_queue(player, "");
-                            dbg!(&result);
-                        }
-                        if result {
-                            display(&tmp_ctx, guild_id).await;
-                            let channel_id;
-                            {
-                                let data = tmp_ctx.data.read().await;
-                                channel_id = *data.get::<QueueChannel>().unwrap().lock().await;
-                            }
-                            let response = channel_id
-                                .say(
-                                    &tmp_ctx.http,
-                                    format!(
-                                    "<@{}> You have been removed from the queue due to inactivity.",
-                                    player
-                                ),
-                                )
-                                .await
-                                .unwrap();
-                            sleep(Duration::from_secs(5)).await;
-                            response.delete(&tmp_ctx.http).await.unwrap();
-                        }
-                    });
-                    dbg!("queued player");
-
-                    let result;
-                    {
-                        let mut queue = QUEUE_MANAGER.lock().await;
-                        result = queue.check_for_game().await;
-                    }
-                    dbg!("getting guild id ");
-                    dbg!("running display");
-                    display(ctx, guild_id).await;
-                    if result {
-                        dbg!("running show_games");
-                        show_games(ctx, guild_id).await;
-                    }
-                }
-            }
-        }
-        Err(err) => {
-            let resp = msg
-                .reply_mention(&ctx.http, &format!("Error: {}", err))
-                .await?;
-            sleep(Duration::from_secs(3)).await;
-            resp.delete(&ctx.http).await?;
-        }
+pub async fn queue(
+    ctx: &Context,
+    command: &ApplicationCommandInteraction,
+) -> Result<(), SerenityError> {
+    let mut result = Ok(());
+    let player = command.user.id;
+    command.defer(&ctx.http).await?;
+    let tmp = CommandDataOptionValue::String(String::from(""));
+    if let CommandDataOptionValue::String(role) = match command.data.options.get(0) {
+        Some(role) => role.resolved.as_ref().expect("Expected a string"),
+        None => &tmp,
+    } {
+        let mut queue = QUEUE_MANAGER.lock().await;
+        dbg!("after lock");
+        dbg!("queing player");
+        result = queue.queue_player(player, role, false);
+    } else {
+        error!("No role specified, somehow past discord");
     }
-    msg.delete(&ctx.http).await?;
-    Ok(())
-}
-
-#[command]
-pub async fn leave(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    match check_queue_channel(ctx, msg).await {
-        Ok(value) => {
-            if value {
-                if args.len() > 1 {
-                    let prefix;
-                    {
-                        let data = ctx.data.read().await;
-                        prefix = data.get::<Prefix>().unwrap().clone();
-                    }
-                    let response = msg
-                        .reply_mention(&ctx.http, &format!("Usage: {}leave <role?>", prefix))
-                        .await?;
-                    sleep(Duration::from_secs(3)).await;
-                    response.delete(&ctx.http).await?;
-                } else {
-                    let role = if args.len() == 1 {
-                        args.single::<String>().unwrap()
-                    } else {
-                        "".to_string()
-                    };
-                    {
-                        let mut queue = QUEUE_MANAGER.lock().await;
-                        queue.leave_queue(msg.author.id, &role);
-                    }
-                    let guild_id = msg.guild_id.unwrap();
-                    display(ctx, guild_id).await;
-                    // Calling the show_games function with the context and guild_id.
-                    // show_games(&ctx, guild_id).await;
-                }
-            }
-        }
-        Err(err) => {
-            let resp = msg
-                .reply_mention(&ctx.http, &format!("Error: {}", err))
-                .await?;
-            sleep(Duration::from_secs(3)).await;
-            resp.delete(&ctx.http).await?;
-        }
+    if let Err(e) = result {
+        dbg!("error queuing player");
+        command
+            .create_followup_message(&ctx.http, |message| {
+                message.content(format!("Error: {}", e))
+            })
+            .await
+            .unwrap();
+        sleep(Duration::from_secs(3)).await;
+        command
+            .delete_original_interaction_response(&ctx.http)
+            .await
+            .unwrap();
+        return Ok(());
     }
-    Ok(())
-}
-
-#[command]
-pub async fn won(ctx: &Context, msg: &Message) -> CommandResult {
-    match check_queue_channel(ctx, msg).await {
-        Ok(value) => {
-            if value {
-                let user = msg.author.id;
-                let game;
+    let guild_id = command.guild_id.unwrap();
+    //only used to get variables for discord api
+    let tmp_ctx = ctx.clone();
+    task::spawn(async move {
+        //2 hours in seconds
+        sleep(Duration::from_secs(7200)).await;
+        let result;
+        {
+            let mut queue = QUEUE_MANAGER.lock().await;
+            result = queue.leave_queue(player, "");
+            dbg!(&result);
+        }
+        match result {
+            Ok(_) => {
+                display(&tmp_ctx, guild_id).await;
+                let channel_id;
                 {
-                    let queue = QUEUE_MANAGER.lock().await;
-                    game = queue.get_side(user).await;
+                    let data = tmp_ctx.data.read().await;
+                    channel_id = *data.get::<QueueChannel>().unwrap().lock().await;
                 }
-                let guild_id = msg.guild_id.unwrap();
-                let channel_id = msg.channel_id;
                 let response = channel_id
-        .say(
-            &ctx.http,
-            format!(
+                    .say(
+                        &tmp_ctx.http,
+                        format!(
+                            "<@{}> You have been removed from the queue due to inactivity.",
+                            player
+                        ),
+                    )
+                    .await
+                    .unwrap();
+                sleep(Duration::from_secs(5)).await;
+                response.delete(&tmp_ctx.http).await.unwrap();
+            }
+            Err(e) => {
+                dbg!("error leaving queue");
+                dbg!(e);
+            }
+        }
+    });
+    dbg!("queued player");
+    command
+        .delete_original_interaction_response(&ctx.http)
+        .await
+        .unwrap();
+
+    let result;
+    {
+        let mut queue = QUEUE_MANAGER.lock().await;
+        result = queue.check_for_game().await;
+    }
+    dbg!("getting guild id ");
+    dbg!("running display");
+    display(ctx, guild_id).await;
+    if result {
+        dbg!("running show_games");
+        show_games(ctx, guild_id).await;
+    }
+    Ok(())
+}
+
+pub async fn leave(
+    ctx: &Context,
+    command: &ApplicationCommandInteraction,
+) -> Result<(), SerenityError> {
+    command.defer(&ctx.http).await?;
+    command
+        .delete_original_interaction_response(&ctx.http)
+        .await?;
+    let tmp = CommandDataOptionValue::String(String::from(""));
+    if let CommandDataOptionValue::String(role) = match command.data.options.get(0) {
+        Some(role) => role.resolved.as_ref().expect("Expected a string"),
+        None => &tmp,
+    } {
+        internal_leave(command.user.id, role).await;
+        let guild_id = command.guild_id.unwrap();
+        display(ctx, guild_id).await;
+    }
+    Ok(())
+}
+
+async fn internal_leave(user: UserId, role: &str) {
+    let mut queue = QUEUE_MANAGER.lock().await;
+    queue.leave_queue(user, role).unwrap();
+}
+
+//TODO allow people to cancel the vote without canceling the game ex. supply a red x to cancel the vote
+pub async fn won(
+    ctx: &Context,
+    command: &ApplicationCommandInteraction,
+) -> Result<(), SerenityError> {
+    let user = command.user.id;
+    let game;
+    {
+        let queue = QUEUE_MANAGER.lock().await;
+        game = queue.get_side(user).await;
+    }
+    match game {
+        Ok(game) => {
+            let guild_id = command.guild_id.unwrap();
+            let channel_id = command.channel_id;
+            command
+                .create_interaction_response(&ctx.http, |response| {
+                    response.kind(InteractionResponseType::DeferredChannelMessageWithSource)
+                })
+                .await
+                .unwrap();
+            let react_message = command.create_followup_message(&ctx.http, |message| {
+            message.content(format!(
                 "{} has started a vote to score the winner of Game {} as {}. React with a ✅ to vote for the game's outcome.\nI'll wait for 180 seconds for the required 6+ votes.",
                 user.mention(),
                 game.0,
                 game.1,
-            ),
-        )
-        .await?;
-                response.react(&ctx.http, '✅').await?;
-                let mut collector = EventCollectorBuilder::new(&ctx)
-                    .add_event_type(EventType::ReactionAdd)
-                    .add_event_type(EventType::ReactionRemove)
-                    .add_message_id(response.id)
-                    .timeout(Duration::from_secs(180))
-                    .build()
-                    .unwrap();
-                let mut votes = 0;
-                while let Some(event) = collector.next().await {
-                    match event.as_ref() {
-                        Event::ReactionAdd(reaction) => {
-                            if reaction.reaction.emoji == ReactionType::Unicode(String::from("✅"))
-                            {
-                                votes += 1;
-                                if votes >= 6 {
-                                    let response = channel_id
+            ))
+        })
+        .await.unwrap();
+            react_message.react(&ctx.http, '✅').await?;
+            let mut collector = EventCollectorBuilder::new(&ctx)
+                .add_event_type(EventType::ReactionAdd)
+                .add_event_type(EventType::ReactionRemove)
+                .add_message_id(react_message.id)
+                .timeout(Duration::from_secs(180))
+                .build()
+                .unwrap();
+            let mut votes = 0;
+            while let Some(event) = collector.next().await {
+                match event.as_ref() {
+                    Event::ReactionAdd(reaction) => {
+                        if reaction.reaction.emoji == ReactionType::Unicode(String::from("✅")) {
+                            votes += 1;
+                            if votes >= 6 {
+                                react_message.delete(&ctx.http).await?;
+                                let response = channel_id
                                         .say(
                                             &ctx.http,
                                             "Vote to confirm the game's outcome has passed. The game will be scored.".to_string(),
                                         )
                                         .await?;
-                                    sleep(Duration::from_secs(3)).await;
-                                    response.delete(&ctx.http).await?;
-                                    //TODO win function in queue manager
-                                    let mentions;
-                                    {
-                                        let queue = QUEUE_MANAGER.lock().await;
-                                        mentions = queue.requeue_players(game.0).await;
-                                    }
-                                    let no_requeue = channel_id.say(&ctx.http, &format!("{}\n I will requeue you in 5 seconds. If you **dont** want to be queued, react with a ❌", mentions)).await?;
-                                    no_requeue.react(&ctx.http, '❌').await?;
-                                    let mut collector = EventCollectorBuilder::new(&ctx)
-                                        .add_event_type(EventType::ReactionAdd)
-                                        .add_event_type(EventType::ReactionRemove)
-                                        .add_message_id(no_requeue.id)
-                                        .timeout(Duration::from_secs(10))
-                                        .build()
-                                        .unwrap();
-                                    let mut dont_queue = Vec::new();
-                                    while let Some(event) = collector.next().await {
-                                        match event.as_ref() {
-                                            Event::ReactionAdd(reaction) => {
-                                                if reaction.reaction.emoji
-                                                    == ReactionType::Unicode(String::from("❌"))
-                                                {
-                                                    dont_queue
-                                                        .push(reaction.reaction.user_id.unwrap());
-                                                }
-                                            }
-                                            Event::ReactionRemove(reaction) => {
-                                                if reaction.reaction.emoji
-                                                    == ReactionType::Unicode(String::from("❌"))
-                                                {
-                                                    dont_queue.swap_remove(
-                                                        dont_queue
-                                                            .iter()
-                                                            .position(|&x| {
-                                                                x == reaction
-                                                                    .reaction
-                                                                    .user_id
-                                                                    .unwrap()
-                                                            })
-                                                            .unwrap(),
-                                                    );
-                                                }
-                                            }
-                                            _ => {}
-                                        }
-                                    }
-                                    {
-                                        let mut queue = QUEUE_MANAGER.lock().await;
-                                        queue.win(game, ctx, channel_id, dont_queue).await;
-                                    }
-                                    display(ctx, guild_id).await;
-                                    break;
+                                sleep(Duration::from_secs(3)).await;
+                                response.delete(&ctx.http).await?;
+                                let mentions;
+                                {
+                                    let queue = QUEUE_MANAGER.lock().await;
+                                    mentions = queue.players_to_requeue(game.0).await;
                                 }
+                                let no_requeue = channel_id.say(&ctx.http, &format!("{}\n I will requeue you in 5 seconds. If you **dont** want to be queued, react with a ❌", mentions)).await?;
+                                no_requeue.react(&ctx.http, '❌').await?;
+                                let mut collector = EventCollectorBuilder::new(&ctx)
+                                    .add_event_type(EventType::ReactionAdd)
+                                    .add_event_type(EventType::ReactionRemove)
+                                    .add_message_id(no_requeue.id)
+                                    .timeout(Duration::from_secs(10))
+                                    .build()
+                                    .unwrap();
+                                let mut dont_queue = Vec::new();
+                                while let Some(event) = collector.next().await {
+                                    match event.as_ref() {
+                                        Event::ReactionAdd(reaction) => {
+                                            if reaction.reaction.emoji
+                                                == ReactionType::Unicode(String::from("❌"))
+                                            {
+                                                dont_queue.push(reaction.reaction.user_id.unwrap());
+                                            }
+                                        }
+                                        Event::ReactionRemove(reaction) => {
+                                            if reaction.reaction.emoji
+                                                == ReactionType::Unicode(String::from("❌"))
+                                            {
+                                                dont_queue.swap_remove(
+                                                    dont_queue
+                                                        .iter()
+                                                        .position(|&x| {
+                                                            x == reaction.reaction.user_id.unwrap()
+                                                        })
+                                                        .unwrap(),
+                                                );
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                no_requeue.delete(&ctx.http).await?;
+                                {
+                                    let mut queue = QUEUE_MANAGER.lock().await;
+                                    queue.win(game, ctx, channel_id, dont_queue).await;
+                                }
+                                display(ctx, guild_id).await;
+                                break;
                             }
                         }
-                        Event::ReactionRemove(reaction) => {
-                            if reaction.reaction.emoji == ReactionType::Unicode(String::from("✅"))
-                            {
-                                votes -= 1;
-                            }
-                        }
-                        _ => {}
                     }
+                    Event::ReactionRemove(reaction) => {
+                        if reaction.reaction.emoji == ReactionType::Unicode(String::from("✅")) {
+                            votes -= 1;
+                        }
+                    }
+                    _ => {}
                 }
-                if votes < 6 {
-                    let response = channel_id
+            }
+            if votes < 6 {
+                react_message.delete(&ctx.http).await?;
+                let response = channel_id
                         .say(
                             &ctx.http,
                             "Vote to confirm game's outcome has failed. The game will not be scored, please try again.".to_string(),
                         )
                         .await?;
-                    sleep(Duration::from_secs(3)).await;
-                    response.delete(&ctx.http).await?;
-                }
+                sleep(Duration::from_secs(3)).await;
                 response.delete(&ctx.http).await?;
             }
         }
         Err(e) => {
-            let resp = msg
-                .reply_mention(&ctx.http, &format!("Error: {}", e))
-                .await?;
-            sleep(Duration::from_secs(3)).await;
-            resp.delete(&ctx.http).await?;
+            command
+                .create_interaction_response(&ctx.http, |response| {
+                    response
+                        .kind(InteractionResponseType::ChannelMessageWithSource)
+                        .interaction_response_data(|message| {
+                            message.ephemeral(true).content(e.to_string())
+                        })
+                })
+                .await
+                .unwrap();
         }
     }
-    msg.delete(&ctx.http).await?;
     Ok(())
 }
 
-#[command]
-pub async fn cancel(ctx: &Context, msg: &Message) -> CommandResult {
-    match check_queue_channel(ctx, msg).await {
-        Ok(value) => {
-            if value {
-                let user = msg.author.id;
-                let result;
-                {
-                    let data = ctx.data.read().await;
-                    let mut queue = QUEUE_MANAGER.lock().await;
-                    let queue_channel = *data.get::<QueueChannel>().unwrap().lock().await;
-                    result = queue.cancel_game(user, ctx, queue_channel).await;
-                }
-                if result {
-                    let response = msg
-                        .channel_id
-                        .say(
-                            &ctx.http,
-                            format!(
-                                "Game cancelled by {}\nThey will not be added back to the queue.",
-                                msg.author.mention()
-                            ),
-                        )
-                        .await?;
-                    sleep(Duration::from_secs(3)).await;
-                    response.delete(&ctx.http).await?;
-                    let guild_id = msg.guild_id.unwrap();
-                    let result;
-                    {
-                        let mut queue = QUEUE_MANAGER.lock().await;
-                        result = queue.check_for_game().await;
-                    }
-                    display(ctx, guild_id).await;
-                    if result {
-                        show_games(ctx, guild_id).await;
-                    }
-                }
-            }
-        }
-        Err(err) => {
-            let resp = msg
-                .reply_mention(&ctx.http, &format!("Error: {}", err))
-                .await?;
-            sleep(Duration::from_secs(3)).await;
-            resp.delete(&ctx.http).await?;
-        }
+pub async fn cancel(
+    ctx: &Context,
+    command: &ApplicationCommandInteraction,
+) -> Result<(), SerenityError> {
+    let user = command.user.id;
+    let result;
+    {
+        let data = ctx.data.read().await;
+        let mut queue = QUEUE_MANAGER.lock().await;
+        let queue_channel = *data.get::<QueueChannel>().unwrap().lock().await;
+        result = queue.cancel_game(user, ctx, queue_channel).await;
     }
-    msg.delete(&ctx.http).await?;
+    if result {
+        command
+            .create_interaction_response(&ctx.http, |response| {
+                response
+                    .kind(InteractionResponseType::ChannelMessageWithSource)
+                    .interaction_response_data(|message| {
+                        message.content(format!(
+                            "Game cancelled. {} will not be queued.",
+                            command.user.mention()
+                        ))
+                    })
+            })
+            .await
+            .unwrap();
+        sleep(Duration::from_secs(3)).await;
+        command
+            .delete_original_interaction_response(&ctx.http)
+            .await
+            .unwrap();
+        let guild_id = command.guild_id.unwrap();
+        let result;
+        {
+            let mut queue = QUEUE_MANAGER.lock().await;
+            result = queue.check_for_game().await;
+        }
+        display(ctx, guild_id).await;
+        if result {
+            show_games(ctx, guild_id).await;
+        }
+    } else {
+        command
+            .create_interaction_response(&ctx.http, |response| {
+                response
+                    .kind(InteractionResponseType::ChannelMessageWithSource)
+                    .interaction_response_data(|message| {
+                        message
+                            .ephemeral(true)
+                            .content(format!("You are not in a game. {}", command.user.mention()))
+                    })
+            })
+            .await
+            .unwrap();
+    }
     Ok(())
 }
 
-#[command]
-#[aliases("clear")]
-pub async fn vote_clear(ctx: &Context, msg: &Message) -> CommandResult {
-    match check_queue_channel(ctx, msg).await {
-        Ok(value) => {
-            if value {
-                let channel_id;
-                {
-                    let data = ctx.data.read().await;
-                    channel_id = *data.get::<QueueChannel>().unwrap().lock().await;
-                }
-                let response = channel_id
+pub async fn vote_clear(
+    ctx: &Context,
+    command: &ApplicationCommandInteraction,
+) -> Result<(), SerenityError> {
+    command.defer(&ctx.http).await.unwrap();
+    command
+        .delete_original_interaction_response(&ctx.http)
+        .await
+        .unwrap();
+    let channel_id;
+    {
+        let data = ctx.data.read().await;
+        channel_id = *data.get::<QueueChannel>().unwrap().lock().await;
+    }
+    let response = channel_id
         .say(
             &ctx.http,
             "Vote to clear the queue has started. React with a ✅ to vote to clear the queue.\nI'll wait for 60 seconds for the required 6+ votes.".to_string(),
         )
         .await?;
-                response.react(&ctx.http, '✅').await?;
-                let mut collector = EventCollectorBuilder::new(&ctx)
-                    .add_event_type(EventType::ReactionAdd)
-                    .add_event_type(EventType::ReactionRemove)
-                    .add_message_id(response.id)
-                    .timeout(Duration::from_secs(60))
-                    .build()
-                    .unwrap();
-                let mut votes = 0;
-                while let Some(event) = collector.next().await {
-                    match event.as_ref() {
-                        Event::ReactionAdd(reaction) => {
-                            if reaction.reaction.emoji == ReactionType::Unicode(String::from("✅"))
-                            {
-                                votes += 1;
-                                if votes >= 6 {
-                                    let response = channel_id
-                                        .say(
-                                            &ctx.http,
-                                            "Vote to clear the queue has passed. The queue will be cleared.".to_string(),
-                                        )
-                                        .await?;
-                                    sleep(Duration::from_secs(3)).await;
-                                    response.delete(&ctx.http).await?;
-                                    let guild_id = msg.guild_id.unwrap();
-                                    {
-                                        let mut queue = QUEUE_MANAGER.lock().await;
-                                        queue.clear_queue().await;
-                                    }
-                                    display(ctx, guild_id).await;
-                                    break;
-                                }
-                            }
+    response.react(&ctx.http, '✅').await?;
+    let mut collector = EventCollectorBuilder::new(&ctx)
+        .add_event_type(EventType::ReactionAdd)
+        .add_event_type(EventType::ReactionRemove)
+        .add_message_id(response.id)
+        .timeout(Duration::from_secs(60))
+        .build()
+        .unwrap();
+    let mut votes = 0;
+    while let Some(event) = collector.next().await {
+        match event.as_ref() {
+            Event::ReactionAdd(reaction) => {
+                if reaction.reaction.emoji == ReactionType::Unicode(String::from("✅")) {
+                    votes += 1;
+                    if votes >= 6 {
+                        let response = channel_id
+                            .say(
+                                &ctx.http,
+                                "Vote to clear the queue has passed. The queue will be cleared."
+                                    .to_string(),
+                            )
+                            .await?;
+                        sleep(Duration::from_secs(3)).await;
+                        response.delete(&ctx.http).await?;
+                        let guild_id = command.guild_id.unwrap();
+                        {
+                            let mut queue = QUEUE_MANAGER.lock().await;
+                            queue.clear_queue().await;
                         }
-                        Event::ReactionRemove(reaction) => {
-                            if reaction.reaction.emoji == ReactionType::Unicode(String::from("✅"))
-                            {
-                                votes -= 1;
-                            }
-                        }
-                        _ => {}
+                        display(ctx, guild_id).await;
+                        break;
                     }
                 }
-                if votes < 6 {
-                    let response = channel_id
-                        .say(
-                            &ctx.http,
-                            "Vote to clear the queue has failed. The queue will not be cleared."
-                                .to_string(),
-                        )
-                        .await?;
-                    sleep(Duration::from_secs(3)).await;
-                    response.delete(&ctx.http).await?;
-                }
-                response.delete(&ctx.http).await?;
             }
-        }
-        Err(err) => {
-            let resp = msg
-                .reply_mention(&ctx.http, &format!("Error: {}", err))
-                .await?;
-            sleep(Duration::from_secs(3)).await;
-            resp.delete(&ctx.http).await?;
+            Event::ReactionRemove(reaction) => {
+                if reaction.reaction.emoji == ReactionType::Unicode(String::from("✅")) {
+                    votes -= 1;
+                }
+            }
+            _ => {}
         }
     }
-    msg.delete(&ctx.http).await?;
+    if votes < 6 {
+        let response = channel_id
+            .say(
+                &ctx.http,
+                "Vote to clear the queue has failed. The queue will not be cleared.".to_string(),
+            )
+            .await?;
+        sleep(Duration::from_secs(3)).await;
+        response.delete(&ctx.http).await?;
+    }
+    response.delete(&ctx.http).await?;
     Ok(())
 }
 
-#[command]
-#[aliases("remove")]
-pub async fn vote_remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    match check_queue_channel(ctx, msg).await {
-        Ok(value) => {
-            if value {
-                if args.len() != 1 {
-                    let prefix;
-                    {
-                        let data = ctx.data.read().await;
-                        prefix = data.get::<Prefix>().unwrap().clone();
-                    }
-                    let response = msg
-                        .reply_mention(&ctx.http, format!("Usage: {}remove @user", prefix))
-                        .await?;
-                    sleep(Duration::from_secs(3)).await;
-                    response.delete(&ctx.http).await?;
-                    msg.delete(&ctx.http).await?;
-                    return Ok(());
-                }
-                let show_user = args.single::<String>().unwrap();
-                let user = show_user.replace("<@", "").replace('>', "");
-                let user = user.parse::<UserId>().unwrap();
-                if user == msg.author.id {
-                    let response = msg
-                        .reply_mention(&ctx.http, "🦛🦛🦛🦛🦛🦛🦛🦛🦛🦛🦛")
-                        .await?;
-                    sleep(Duration::from_secs(3)).await;
-                    response.delete(&ctx.http).await?;
-                    leave(ctx, msg, args);
-                    msg.delete(&ctx.http).await?;
-                    return Ok(());
-                }
-                let channel_id;
-                {
-                    let data = ctx.data.read().await;
-                    channel_id = *data.get::<QueueChannel>().unwrap().lock().await;
-                }
-                let response = channel_id
-                .say(
-                    &ctx.http,
-                    format!(
-                        "Vote to remove {} has started by {} React with a ✅ to vote kick them.\nI'll wait for 60 seconds for the required 6+ votes.",
-                        show_user,
-                        msg.author.mention()
-                    ),
-                )
-                .await?;
-                response.react(&ctx.http, '✅').await?;
-                let mut collector = EventCollectorBuilder::new(&ctx)
-                    .add_event_type(EventType::ReactionAdd)
-                    .add_event_type(EventType::ReactionRemove)
-                    .add_message_id(response.id)
-                    .timeout(Duration::from_secs(60))
-                    .build()
-                    .unwrap();
-                let mut votes = 0;
-                while let Some(event) = collector.next().await {
-                    match event.as_ref() {
-                        Event::ReactionAdd(reaction) => {
-                            if reaction.reaction.emoji == ReactionType::Unicode(String::from("✅"))
-                            {
-                                votes += 1;
-                                if votes >= 6 {
-                                    let response = channel_id
-                                    .say(
-                                        &ctx.http,
-                                        format!(
-                                            "Vote to remove has passed. {} will be removed from the queue.",
-                                            show_user
-                                        ),
-                                    )
-                                    .await?;
-                                    sleep(Duration::from_secs(3)).await;
-                                    response.delete(&ctx.http).await?;
-                                    let guild_id = msg.guild_id.unwrap();
-                                    {
-                                        let mut queue = QUEUE_MANAGER.lock().await;
-                                        queue.leave_queue(user, "");
-                                    }
-                                    display(ctx, guild_id).await;
-                                    break;
+pub async fn vote_remove(
+    ctx: &Context,
+    command: &ApplicationCommandInteraction,
+) -> Result<(), SerenityError> {
+    command.defer(&ctx.http).await.unwrap();
+    if let CommandDataOptionValue::User(user, _member) = command
+        .data
+        .options
+        .get(0)
+        .expect("Expected user")
+        .resolved
+        .as_ref()
+        .expect("Expected user object")
+    {
+        if user.id == command.user.id {
+            command
+                .create_followup_message(&ctx.http, |response| {
+                    response.content("🦛🦛🦛🦛🦛🦛🦛🦛🦛🦛🦛".to_string())
+                })
+                .await
+                .unwrap();
+            sleep(Duration::from_secs(3)).await;
+            command
+                .delete_original_interaction_response(&ctx.http)
+                .await
+                .unwrap();
+            internal_leave(user.id, "").await;
+            return Ok(());
+        } else {
+            command
+                .delete_original_interaction_response(&ctx.http)
+                .await
+                .unwrap();
+            let channel_id;
+            {
+                let data = ctx.data.read().await;
+                channel_id = *data.get::<QueueChannel>().unwrap().lock().await;
+            }
+            let response = channel_id
+        .say(
+            &ctx.http,
+            format!(
+                "Vote to remove {} has started by {} React with a ✅ to vote kick them.\nI'll wait for 60 seconds for the required 6+ votes.",
+                user.mention(),
+                command.user.mention()
+            ),
+        )
+        .await?;
+            response.react(&ctx.http, '✅').await?;
+            let mut collector = EventCollectorBuilder::new(&ctx)
+                .add_event_type(EventType::ReactionAdd)
+                .add_event_type(EventType::ReactionRemove)
+                .add_message_id(response.id)
+                .timeout(Duration::from_secs(60))
+                .build()
+                .unwrap();
+            let mut votes = 0;
+            while let Some(event) = collector.next().await {
+                match event.as_ref() {
+                    Event::ReactionAdd(reaction) => {
+                        if reaction.reaction.emoji == ReactionType::Unicode(String::from("✅")) {
+                            votes += 1;
+                            if votes >= 6 {
+                                let response = channel_id
+                                .say(
+                                    &ctx.http,
+                                    format!(
+                                        "Vote to remove has passed. {} will be removed from the queue.",
+                                        user.mention()
+                                    ),
+                                )
+                                .await?;
+                                sleep(Duration::from_secs(3)).await;
+                                response.delete(&ctx.http).await?;
+                                let guild_id = command.guild_id.unwrap();
+                                {
+                                    let mut queue = QUEUE_MANAGER.lock().await;
+                                    queue.leave_queue(user.id, "").unwrap();
                                 }
+                                display(ctx, guild_id).await;
+                                break;
                             }
                         }
-                        Event::ReactionRemove(reaction) => {
-                            if reaction.reaction.emoji == ReactionType::Unicode(String::from("✅"))
-                            {
-                                votes -= 1;
-                            }
-                        }
-                        _ => {}
                     }
+                    Event::ReactionRemove(reaction) => {
+                        if reaction.reaction.emoji == ReactionType::Unicode(String::from("✅")) {
+                            votes -= 1;
+                        }
+                    }
+                    _ => {}
                 }
-                if votes < 6 {
-                    let response = channel_id
-                        .say(
-                            &ctx.http,
-                            "Vote to remove player has failed. The player will not be removed."
-                                .to_string(),
-                        )
-                        .await?;
-                    sleep(Duration::from_secs(3)).await;
-                    response.delete(&ctx.http).await?;
-                }
+            }
+            if votes < 6 {
+                let response = channel_id
+                    .say(
+                        &ctx.http,
+                        "Vote to remove player has failed. The player will not be removed."
+                            .to_string(),
+                    )
+                    .await?;
+                sleep(Duration::from_secs(3)).await;
                 response.delete(&ctx.http).await?;
             }
-        }
-        Err(err) => {
-            let resp = msg
-                .reply_mention(&ctx.http, &format!("Error: {}", err))
-                .await?;
-            sleep(Duration::from_secs(3)).await;
-            resp.delete(&ctx.http).await?;
+            response.delete(&ctx.http).await?;
         }
     }
-    msg.delete(&ctx.http).await?;
     Ok(())
 }
 
@@ -764,18 +730,4 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
             }
         }
     }
-}
-
-async fn check_queue_channel<'a>(ctx: &'a Context, msg: &'a Message) -> Result<bool, &'a str> {
-    {
-        let data = ctx.data.read().await;
-        let channel_id = *data.get::<QueueChannel>().unwrap().lock().await;
-        if channel_id == ChannelId(0) {
-            return Err("Queue channel not set");
-        }
-        if channel_id != msg.channel_id {
-            return Ok(false);
-        }
-    }
-    Ok(true)
 }

@@ -14,13 +14,14 @@ use crate::commands::queue::*;
 use crate::lib::database::*;
 use crate::lib::inhouse::*;
 
+use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 
 use lazy_static::lazy_static;
 use serenity::async_trait;
+use serenity::builder::CreateApplicationCommandOption;
 use serenity::client::bridge::gateway::ShardManager;
-use serenity::framework::standard::macros::group;
 use serenity::framework::StandardFramework;
 use serenity::model::application::interaction::Interaction;
 use serenity::model::channel::Message;
@@ -29,7 +30,6 @@ use serenity::model::id::{ChannelId, MessageId};
 use serenity::model::prelude::command::CommandOptionType;
 use serenity::model::Permissions;
 use serenity::prelude::*;
-use tokio::time::{sleep, Duration};
 
 use tracing::{error, info};
 
@@ -82,7 +82,6 @@ impl EventHandler for Handler {
         info!("Connected as {}", ready.user.name);
         if !ready.guilds.is_empty() {
             let guild_id = ready.guilds[0].id;
-            display(&ctx, guild_id).await;
             let commands = guild_id
                 .set_application_commands(&ctx.http, |commands| {
                     commands
@@ -97,17 +96,27 @@ impl EventHandler for Handler {
                         })
                         .create_application_command(|command| {
                             command
-                                .name("clear")
-                                .description("Clear the queue without a vote")
+                                .name("cancel")
+                                .description("Cancel the current game you are in")
                                 .dm_permission(false)
-                                .default_member_permissions(Permissions::ADMINISTRATOR)
+                        })
+                        .create_application_command(|command| {
+                            command
+                                .name("won")
+                                .description("Mark the current game winner as your team")
+                                .dm_permission(false)
+                        })
+                        .create_application_command(|command| {
+                            command
+                                .name("clear")
+                                .description("Create a vote to clear the queue")
+                                .dm_permission(false)
                         })
                         .create_application_command(|command| {
                             command
                                 .name("remove")
-                                .description("Remove a user from the queue without a vote")
+                                .description("Create a vote to remove a user")
                                 .dm_permission(false)
-                                .default_member_permissions(Permissions::ADMINISTRATOR)
                                 .create_option(|option| {
                                     option
                                         .name("user")
@@ -116,22 +125,170 @@ impl EventHandler for Handler {
                                         .kind(CommandOptionType::User)
                                 })
                         })
+                        .create_application_command(|command| {
+                            command
+                                .name("leave")
+                                .description("Leave the queue")
+                                .dm_permission(false)
+                                .create_option(|option| {
+                                    option
+                                        .name("role")
+                                        .description("The role to leave")
+                                        .kind(CommandOptionType::String)
+                                        .add_string_choice("Top", "top")
+                                        .add_string_choice("Jungle", "jng")
+                                        .add_string_choice("Middle", "mid")
+                                        .add_string_choice("Bottom", "bot")
+                                        .add_string_choice("Support", "sup")
+                                })
+                        })
+                        .create_application_command(|command| {
+                            command
+                                .name("queue")
+                                .description("Join the queue")
+                                .dm_permission(false)
+                                .create_option(|option| {
+                                    option
+                                        .name("role")
+                                        .description("The role to join")
+                                        .kind(CommandOptionType::String)
+                                        .add_string_choice("Top", "top")
+                                        .add_string_choice("Jungle", "jng")
+                                        .add_string_choice("Middle", "mid")
+                                        .add_string_choice("Bottom", "bot")
+                                        .add_string_choice("Support", "sup")
+                                })
+                        })
+                        .create_application_command(|command| {
+                            command
+                                .name("admin")
+                                .description("Admin commands")
+                                .dm_permission(false)
+                                .default_member_permissions(Permissions::ADMINISTRATOR)
+                                .create_option(|option| {
+                                    option
+                                        .name("remove")
+                                        .description("Remove a user from the queue without a vote")
+                                        .kind(CommandOptionType::SubCommand)
+                                        .add_sub_option(
+                                            CreateApplicationCommandOption(HashMap::new())
+                                                .name("user")
+                                                .description("The user to remove")
+                                                .required(true)
+                                                .kind(CommandOptionType::User)
+                                                .to_owned(),
+                                        )
+                                })
+                                .create_option(|option| {
+                                    option
+                                        .name("clear")
+                                        .description("Clear the queue without a vote")
+                                        .kind(CommandOptionType::SubCommand)
+                                })
+                                .create_option(|option| {
+                                    option
+                                        .name("test")
+                                        .description("Add 10 test users to the queue")
+                                        .kind(CommandOptionType::SubCommand)
+                                })
+                                .create_option(|option| {
+                                    option
+                                        .name("setemojis")
+                                        .description("Change the emojis for the roles")
+                                        .kind(CommandOptionType::SubCommand)
+                                        .add_sub_option(
+                                            CreateApplicationCommandOption(HashMap::new())
+                                                .name("top")
+                                                .description("The top role emoji")
+                                                .required(true)
+                                                .kind(CommandOptionType::String)
+                                                .to_owned(),
+                                        )
+                                        .add_sub_option(
+                                            CreateApplicationCommandOption(HashMap::new())
+                                                .name("jng")
+                                                .description("The jungle role emoji")
+                                                .required(true)
+                                                .kind(CommandOptionType::String)
+                                                .to_owned(),
+                                        )
+                                        .add_sub_option(
+                                            CreateApplicationCommandOption(HashMap::new())
+                                                .name("mid")
+                                                .description("The middle role emoji")
+                                                .required(true)
+                                                .kind(CommandOptionType::String)
+                                                .to_owned(),
+                                        )
+                                        .add_sub_option(
+                                            CreateApplicationCommandOption(HashMap::new())
+                                                .name("bot")
+                                                .description("The bottom role emoji")
+                                                .required(true)
+                                                .kind(CommandOptionType::String)
+                                                .to_owned(),
+                                        )
+                                        .add_sub_option(
+                                            CreateApplicationCommandOption(HashMap::new())
+                                                .name("sup")
+                                                .description("The support role emoji")
+                                                .required(true)
+                                                .kind(CommandOptionType::String)
+                                                .to_owned(),
+                                        )
+                                })
+                                .create_option(|option| {
+                                    option
+                                        .name("unmark")
+                                        .description("Unmark the current channel as a queue")
+                                        .kind(CommandOptionType::SubCommand)
+                                })
+                                .create_option(|option| {
+                                    option
+                                        .name("mark")
+                                        .description("Mark the current channel as a queue")
+                                        .kind(CommandOptionType::SubCommand)
+                                })
+                        })
                 })
                 .await;
             if let Err(e) = commands {
                 error!("Error setting application commands: {}", e);
             }
+            display(&ctx, guild_id).await;
         }
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         if let Interaction::ApplicationCommand(command) = interaction {
             if let Err(e) = match command.data.name.as_str() {
-                "ping" => ping(&ctx, &command).await,
+                "queue" => queue(&ctx, &command).await,
+                "leave" => leave(&ctx, &command).await,
                 "register" => register(&ctx, &command).await,
-                "clear" => clear(&ctx, &command).await,
-                "remove" => remove(&ctx, &command).await,
-                _ => Ok(()),
+                "won" => won(&ctx, &command).await,
+                "cancel" => cancel(&ctx, &command).await,
+                "remove" => vote_remove(&ctx, &command).await,
+                "clear" => vote_clear(&ctx, &command).await,
+                "admin" => {
+                    let sub_command = command.data.options.get(0).unwrap();
+                    match sub_command.name.as_str() {
+                        "clear" => clear(&ctx, &command).await,
+                        "remove" => remove(&ctx, &command, sub_command).await,
+                        "setemojis" => role_emojis(&ctx, &command, sub_command).await,
+                        "unmark" => unmark(&ctx, &command).await,
+                        "mark" => mark(&ctx, &command).await,
+                        "test" => test(&ctx, &command).await,
+                        _ => {
+                            error!("Unknown admin command: {}", sub_command.name);
+                            Ok(())
+                        }
+                    }
+                }
+                "ping" => ping(&ctx, &command).await,
+                _ => {
+                    error!("Unknown command: {}", command.data.name);
+                    Ok(())
+                }
             } {
                 error!("Error handling application command: {}", e);
             }
@@ -144,53 +301,15 @@ impl EventHandler for Handler {
             msg.author.name, msg.content
         );
         let channel_id;
-        let prefix: String;
         {
             let data = ctx.data.read().await;
             channel_id = *data.get::<QueueChannel>().unwrap().lock().await;
-            prefix = data.get::<Prefix>().unwrap().clone();
         }
         if msg.channel_id == channel_id && !msg.author.bot {
-            if msg.content.starts_with(&format!("{}admin", prefix)) {
-                let mut args = msg.content.split_whitespace();
-                args.next();
-                let command = args.next().unwrap();
-                match command {
-                    "unmark" => {
-                        return;
-                    }
-                    "mark" => {
-                        return;
-                    }
-                    _ => {
-                        let resp = msg
-                            .reply_mention(
-                                &ctx.http,
-                                "Don't use that command in the queue channel :P",
-                            )
-                            .await
-                            .unwrap();
-                        sleep(Duration::from_secs(1)).await;
-                        resp.delete(&ctx.http).await.unwrap();
-                        msg.delete(&ctx.http).await.unwrap();
-                    }
-                }
-            } else {
-                msg.delete(&ctx.http).await.unwrap();
-            }
+            msg.delete(&ctx.http).await.unwrap();
         }
     }
 }
-
-#[group]
-#[commands(queue, leave, won, cancel, vote_clear, vote_remove)]
-struct General;
-
-#[group]
-#[commands(mark, unmark, role_emojis, test)]
-#[prefix("admin")]
-#[required_permissions("ADMINISTRATOR")]
-struct Admin;
 
 //Ignore the following error, rust-analyzer is causing a false positive
 #[tokio::main]
@@ -203,10 +322,7 @@ async fn main() {
 
     let riot_key = env::var("RGAPI_KEY").expect("Expect to find a riot api key in the environment");
 
-    let framework = StandardFramework::new()
-        .configure(|c| c.prefix(&prefix))
-        .group(&GENERAL_GROUP)
-        .group(&ADMIN_GROUP);
+    let framework = StandardFramework::new();
 
     let intents = GatewayIntents::non_privileged()
         | GatewayIntents::MESSAGE_CONTENT

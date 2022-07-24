@@ -47,8 +47,7 @@ pub async fn register(
         .delete_original_interaction_response(&ctx.http)
         .await
         .unwrap();
-    dbg!(&author.name);
-    info!("did thi");
+    info!("User registering: {}", &author.name);
     let dm = author
         .direct_message(
             &ctx.http,
@@ -117,7 +116,7 @@ pub async fn register(
                 .get_by_summoner_name(NA1, &account)
                 .await
             {
-                dbg!(err);
+                info!("Riot Api Error: {}", err);
             }
             let response = dm
                 .channel_id
