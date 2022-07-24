@@ -50,11 +50,6 @@ pub struct ShardManagerContainer;
 impl TypeMapKey for ShardManagerContainer {
     type Value = Arc<Mutex<ShardManager>>;
 }
-pub struct Prefix;
-
-impl TypeMapKey for Prefix {
-    type Value = String;
-}
 
 pub struct QueueEmbed;
 
@@ -318,8 +313,6 @@ async fn main() {
     let token =
         env::var("DISCORD_TOKEN").expect("Expected to find a discord token in the environment");
 
-    let prefix = env::var("PREFIX").unwrap_or_else(|_| "!".to_string());
-
     let riot_key = env::var("RGAPI_KEY").expect("Expect to find a riot api key in the environment");
 
     let framework = StandardFramework::new();
@@ -343,7 +336,6 @@ async fn main() {
     {
         let mut data = client.data.write().await;
         data.insert::<ShardManagerContainer>(client.shard_manager.clone());
-        data.insert::<Prefix>(prefix);
         data.insert::<QueueChannel>(Arc::new(Mutex::new(queue_channel)));
         data.insert::<QueueEmbed>(Arc::new(Mutex::new(MessageId(0))));
         data.insert::<Riot>(riot_key);

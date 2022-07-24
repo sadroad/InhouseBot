@@ -14,6 +14,8 @@ use super::openskill::lib::Rating;
 use serenity::http::Http;
 use serenity::model::id::{ChannelId, UserId};
 
+use rayon::prelude::*;
+
 use std::sync::Arc;
 
 use self::models::*;
@@ -214,7 +216,7 @@ pub fn update_game(conn: &PgConnection, game: &Game, winner: bool) {
             blue_side: true,
         });
     }
-    for player in red_team {
+   for player in red_team {
         new_game_roles.push(NewGameRoles {
             game_id: game.get_id(),
             discord_id: i64::from(player.0),
@@ -234,7 +236,7 @@ pub fn update_game(conn: &PgConnection, game: &Game, winner: bool) {
     let new_game = NewGames {
         id: game.get_id(),
         winner,
-        players: teams_merged.iter().map(|x| i64::from(x.0)).collect(),
+        players: teams_merged.par_iter().map(|x| i64::from(x.0)).collect(),
     };
     diesel::insert_into(games::table)
         .values(&new_game)

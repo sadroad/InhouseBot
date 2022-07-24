@@ -18,6 +18,7 @@ diesel_migrations = "1.4"
 itertools = "0.10"
 ordered-float = "3.0"
 async-recursion = "1.0.0"
+rayon = "1.5"
 
 [dependencies.tokio]
 version = "1"

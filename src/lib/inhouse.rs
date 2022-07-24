@@ -6,6 +6,7 @@ use crate::{DBCONNECTION, LOADING_EMOJI};
 use itertools::{iproduct, Itertools};
 use lazy_static::lazy_static;
 use ordered_float::OrderedFloat;
+use rayon::iter::IntoParallelRefIterator;
 use riven::consts::PlatformRoute::NA1;
 use riven::consts::{Division, QueueType, Tier};
 use riven::RiotApi;
@@ -20,6 +21,8 @@ use std::fmt::Write as _;
 use std::sync::Mutex;
 use tokio::time::{sleep, Duration};
 use tracing::log::{error, info};
+
+use rayon::prelude::*;
 
 lazy_static! {
     pub static ref TOP_EMOJI: Mutex<String> = Mutex::new(String::from(":frog: "));
@@ -188,11 +191,11 @@ impl Game {
     }
 
     fn player_in_game(&self, player: &UserId) -> bool {
-        self.top.iter().any(|p| p.0 == *player)
-            || self.jungle.iter().any(|p| p.0 == *player)
-            || self.mid.iter().any(|p| p.0 == *player)
-            || self.bot.iter().any(|p| p.0 == *player)
-            || self.support.iter().any(|p| p.0 == *player)
+        self.top.par_iter().any(|p| p.0 == *player)
+            || self.jungle.par_iter().any(|p| p.0 == *player)
+            || self.mid.par_iter().any(|p| p.0 == *player)
+            || self.bot.par_iter().any(|p| p.0 == *player)
+            || self.support.par_iter().any(|p| p.0 == *player)
     }
     pub async fn unready(&mut self, user_reactor: UserId, emoji: &ReactionType) -> bool {
         if emoji == &ReactionType::Unicode(String::from("✅")) {
@@ -401,7 +404,7 @@ impl QueueManager {
     fn check_player_in_game(&self, discord_id: UserId) -> Result<(), &str> {
         if self
             .current_games
-            .iter()
+            .par_iter()
             .any(|game| game.player_in_game(&discord_id))
         {
             return Err(
@@ -410,7 +413,7 @@ impl QueueManager {
         }
         if self
             .tentative_games
-            .iter()
+            .par_iter()
             .any(|game| game.player_in_game(&discord_id))
         {
             return Err("My guy. ur queued for a game like cancel it or what???????🦧");
@@ -419,7 +422,7 @@ impl QueueManager {
     }
 
     pub async fn is_game_ready(&self, game_id: i32) -> bool {
-        let game = self.tentative_games.iter().find(|game| game.id == game_id);
+        let game = self.tentative_games.par_iter().find_any(|game| game.id == game_id);
         if game.is_none() {
             return false;
         }
@@ -569,8 +572,8 @@ impl QueueManager {
         //find game with user in it
         let game_position = self
             .current_games
-            .iter()
-            .position(|game| game.player_in_game(&user));
+            .par_iter()
+            .position_any(|game| game.player_in_game(&user));
         if game_position.is_none() {
             return false;
         }
@@ -879,7 +882,7 @@ impl QueueManager {
             if self.support.len() < 2 {
                 missing_roles.insert("Support");
             }
-            self.missing_roles = missing_roles.iter().map(|x| x.to_string()).collect();
+            self.missing_roles = missing_roles.par_iter().map(|x| x.to_string()).collect();
             false
         }
     }
@@ -963,7 +966,7 @@ impl QueueManager {
     }
 
     pub async fn players_to_requeue(&self, game_id: i32) -> String {
-        let game = self.current_games.iter().find(|x| x.id == game_id);
+        let game = self.current_games.par_iter().find_any(|x| x.id == game_id);
         if game.is_none() {
             return String::from("Game not found");
         }
@@ -987,18 +990,18 @@ impl QueueManager {
     ) {
         let game_final = self.current_games.swap_remove(
             self.current_games
-                .iter()
-                .position(|x| x.id == game.0)
+                .par_iter()
+                .position_any(|x| x.id == game.0)
                 .unwrap(),
         );
         let blue = game_final.team(0);
         let red = game_final.team(1);
         let blue_ratings: Vec<Rating> = blue
-            .iter()
+            .par_iter()
             .map(|x| self.players.get(&x.0).unwrap().rating.clone())
             .collect();
         let red_ratings: Vec<Rating> = red
-            .iter()
+            .par_iter()
             .map(|x| self.players.get(&x.0).unwrap().rating.clone())
             .collect();
         let new_ratings = if game.1 == "Blue" {
@@ -1063,7 +1066,7 @@ impl QueueManager {
         guild_id: GuildId,
         game_id: i32,
     ) -> (String, String, String) {
-        let game = self.tentative_games.iter().find(|x| x.id == game_id);
+        let game = self.tentative_games.par_iter().find_any(|x| x.id == game_id);
         if game.is_none() {
             return ("".to_string(), "".to_string(), "".to_string());
         }
@@ -1078,7 +1081,7 @@ impl QueueManager {
         emoji: &ReactionType,
         game_id: i32,
     ) -> Result<(), ()> {
-        let game = self.tentative_games.iter_mut().find(|x| x.id == game_id);
+        let game = self.tentative_games.par_iter_mut().find_any(|x| x.id == game_id);
         if game.is_none() {
             return Ok(());
         }
@@ -1092,7 +1095,7 @@ impl QueueManager {
         emoji: &ReactionType,
         game_id: i32,
     ) -> bool {
-        let game = self.tentative_games.iter_mut().find(|x| x.id == game_id);
+        let game = self.tentative_games.par_iter_mut().find_any(|x| x.id == game_id);
         if game.is_none() {
             return false;
         }
@@ -1101,11 +1104,11 @@ impl QueueManager {
     }
 
     pub async fn set_message_id(&mut self, id: i32, message_id: MessageId) {
-        for game in self.tentative_games.iter_mut() {
+        self.tentative_games.par_iter_mut().for_each(|game|{
             if game.id == id {
                 game.message_id = message_id;
             }
-        }
+        });
     }
     pub async fn clear_queue(&mut self) {
         self.top.clear();
@@ -1140,8 +1143,8 @@ impl QueueManager {
             for player in team.iter() {
                 let accounts = &self
                     .players
-                    .iter()
-                    .find(|x| player.0 == *x.0)
+                    .par_iter()
+                    .find_any(|x| player.0 == *x.0)
                     .unwrap()
                     .1
                     .riot_accounts;
@@ -1165,10 +1168,9 @@ impl QueueManager {
         queue_id: ChannelId,
         message_id: MessageId,
         guild_id: GuildId,
-        prefix: &str,
         riot: &str,
     ) {
-        let index = self.tentative_games.iter().position(|x| x.id == *game_id);
+        let index = self.tentative_games.par_iter().position_any(|x| x.id == *game_id);
         if index.is_none() {
             return;
         }
@@ -1197,7 +1199,7 @@ impl QueueManager {
                 m.content("")
                 .embed(|e| {
                     e.title("📢 Game accepted 📢")
-                        .description(&format!("Game {} has been validated and added to the database\nOnce the game has been played, one of the winners can score it with `{}won`\nIf you wish to cancel the game, use `{}cancel`", game.id + 1, prefix, prefix))
+                        .description(&format!("Game {} has been validated and added to the database\nOnce the game has been played, one of the winners can score it with `/won`\nIf you wish to cancel the game, use `/cancel`", game.id + 1))
                         .field("BLUE", body.0, true)
                         .field("RED", body.1, true)
                 }).content(opgg_links)
@@ -1214,7 +1216,7 @@ impl QueueManager {
         queue_id: ChannelId,
         message_id: MessageId,
     ) {
-        let game = self.tentative_games.iter().find(|game| game.id == *game_id);
+        let game = self.tentative_games.par_iter().find_any(|game| game.id == *game_id);
         match game {
             Some(game) => {
                 let mut team = game.team(0);

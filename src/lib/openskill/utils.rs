@@ -1,4 +1,5 @@
 use super::lib::Rating;
+use rayon::prelude::*;
 
 pub fn score(q: f64, i: f64) -> f64 {
     if q < i {
@@ -30,12 +31,12 @@ fn rankings() -> Vec<usize> {
 pub fn team_rating<'a>(teams: &'a [Vec<Rating>]) -> Vec<(f64, f64, &'a Vec<Rating>, usize)> {
     let rank = rankings();
     return teams
-        .iter()
+        .par_iter()
         .enumerate()
         .map(|(i, team)| {
             return (
-                team.iter().map(|rating| rating.mu).sum::<f64>(),
-                team.iter()
+                team.par_iter().map(|rating| rating.mu).sum::<f64>(),
+                team.par_iter()
                     .map(|rating| {
                         let sigma = rating.sigma;
                         sigma * sigma

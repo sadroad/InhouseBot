@@ -1,4 +1,4 @@
-use crate::{Prefix, QueueChannel, QueueEmbed, Riot, QUEUE_MANAGER};
+use crate::{QueueChannel, QueueEmbed, Riot, QUEUE_MANAGER};
 
 use serenity::collector::EventCollectorBuilder;
 use serenity::futures::StreamExt;
@@ -13,6 +13,8 @@ use async_recursion::async_recursion;
 use tokio::task;
 use tokio::time::{sleep, Duration};
 use tracing::error;
+
+use rayon::prelude::*;
 
 pub async fn queue(
     ctx: &Context,
@@ -217,8 +219,8 @@ pub async fn won(
                                             {
                                                 dont_queue.swap_remove(
                                                     dont_queue
-                                                        .iter()
-                                                        .position(|&x| {
+                                                        .par_iter()
+                                                        .position_any(|&x| {
                                                             x == reaction.reaction.user_id.unwrap()
                                                         })
                                                         .unwrap(),
@@ -518,7 +520,6 @@ pub async fn vote_remove(
 }
 
 pub async fn display(ctx: &Context, guild_id: GuildId) {
-    let prefix;
     let body;
     let num_players;
     let missing_roles;
@@ -534,7 +535,6 @@ pub async fn display(ctx: &Context, guild_id: GuildId) {
         }
         body = queue.display(ctx, guild_id).await;
         num_players = queue.number_of_unique_players().await;
-        prefix = data.get::<Prefix>().unwrap().clone();
     }
     if queue_channel != ChannelId(0) {
         {
@@ -545,7 +545,7 @@ pub async fn display(ctx: &Context, guild_id: GuildId) {
                     .send_message(&ctx.http, |m| {
                         m.embed(|e| {
                             e.field("Queue", body, true)
-                            .footer(|f| f.text(&format!("Use {}queue <role> to join or {}leave <role?> to leave | All non-queue messages are deleted", prefix, prefix)))
+                            .footer(|f| f.text("Use /queue <role> to join or /leave <role?> to leave | All non-queue messages are deleted"))
                         })
                 }).await.unwrap();
                 let response = response.id;
@@ -557,7 +557,7 @@ pub async fn display(ctx: &Context, guild_id: GuildId) {
                         e.field("Queue", body,false)
                         .field("Missing Roles", missing_roles, false)
                         .field("# of Unique Players", num_players.to_string(), false)
-                        .footer(|f| f.text(&format!("Use {}queue <role> to join or {}leave <role?> to leave | All non-queue messages are deleted", prefix, prefix)))
+                        .footer(|f| f.text("Use /queue <role> to join or /leave <role?> to leave | All non-queue messages are deleted"))
                     })
                 }).await.unwrap();
             } else {
@@ -566,7 +566,7 @@ pub async fn display(ctx: &Context, guild_id: GuildId) {
                     m.embed(|e| {
                         e.field("Queue", body,false)
                         .field("# of Unique Players", num_players.to_string(), false)
-                        .footer(|f| f.text(&format!("Use {}queue <role> to join or {}leave <role?> to leave | All non-queue messages are deleted", prefix, prefix)))
+                        .footer(|f| f.text("Use /queue <role> to join or /leave <role?> to leave | All non-queue messages are deleted"))
                     })
                 }).await.unwrap();
             }
@@ -699,7 +699,6 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
                 {
                     let data = ctx.data.read().await;
                     let mut queue = QUEUE_MANAGER.lock().await;
-                    let prefix = data.get::<Prefix>().unwrap();
                     let riot = data.get::<Riot>().unwrap();
                     queue
                         .start_game(
@@ -708,7 +707,6 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
                             queue_channel,
                             message_id,
                             guild_id,
-                            prefix,
                             riot,
                         )
                         .await;

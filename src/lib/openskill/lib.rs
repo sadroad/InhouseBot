@@ -1,5 +1,6 @@
 use super::statistics::phi_major;
 use super::utils::{gamma, score, team_rating};
+use rayon::prelude::*;
 use serenity::model::id::UserId;
 
 const DEFAULT_Z: f64 = 3.0;
@@ -31,10 +32,10 @@ impl Rating {
 pub fn rate(teams: &[Vec<Rating>]) -> Vec<Vec<Rating>> {
     let teams_copy = teams.to_owned();
     let processed_teams = &teams
-        .iter()
+        .par_iter()
         .map(|team| {
             let team = team
-                .iter()
+                .par_iter()
                 .map(|rating| {
                     let mut rating = rating.clone();
                     rating.sigma = f64::sqrt(rating.sigma * rating.sigma * TAU_SQUARED);
@@ -51,7 +52,7 @@ pub fn rate(teams: &[Vec<Rating>]) -> Vec<Vec<Rating>> {
         .into_iter()
         .enumerate()
         .map(|(i, team)| {
-            team.into_iter()
+            team.into_par_iter()
                 .enumerate()
                 .map(|(j, mut rating)| {
                     rating.sigma = f64::min(rating.sigma, teams_copy[i][j].sigma);
