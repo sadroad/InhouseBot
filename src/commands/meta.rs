@@ -2,37 +2,52 @@ use crate::lib::inhouse::get_msl_points;
 use crate::{Riot, QUEUE_MANAGER};
 use riven::consts::PlatformRoute::NA1;
 use riven::RiotApi;
-use serenity::framework::standard::{macros::command, CommandResult};
-use serenity::model::prelude::*;
+use serenity::model::application::interaction::application_command::ApplicationCommandInteraction;
+use serenity::model::application::interaction::InteractionResponseType;
 use serenity::prelude::*;
 use tokio::time::{sleep, Duration};
 
 use tracing::log::info;
 
-#[command]
-pub async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
-    msg.channel_id.say(&ctx.http, "Pong!").await?;
-    Ok(())
+pub async fn ping(
+    ctx: &Context,
+    command: &ApplicationCommandInteraction,
+) -> Result<(), SerenityError> {
+    command
+        .create_interaction_response(&ctx.http, |response| {
+            response
+                .kind(InteractionResponseType::ChannelMessageWithSource)
+                .interaction_response_data(|message| message.ephemeral(true).content("Pong!"))
+        })
+        .await
 }
 
-#[command]
-pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
-    let author = &msg.author;
+pub async fn register(
+    ctx: &Context,
+    command: &ApplicationCommandInteraction,
+) -> Result<(), SerenityError> {
+    let author = &command.member.as_ref().unwrap().user;
     {
         let queue = QUEUE_MANAGER.lock().await;
-        let player = msg.author.id;
+        let player = author.id;
         if let Err(e) = queue.check_registered_player(player) {
-            let response = msg
-                .reply_mention(&ctx.http, &format!("Error: {}", e))
-                .await?;
-            sleep(Duration::from_secs(3)).await;
-            response.delete(&ctx.http).await?;
-            msg.delete(&ctx.http).await?;
-            return Ok(());
+            return command
+                .create_interaction_response(&ctx.http, |response| {
+                    response
+                        .kind(InteractionResponseType::ChannelMessageWithSource)
+                        .interaction_response_data(|message| {
+                            message.ephemeral(true).content(&format!("Error: {}", e))
+                        })
+                })
+                .await;
         }
     }
-    dbg!(&author.name);
-    info!("did thi");
+    command.defer(&ctx.http).await.unwrap();
+    command
+        .delete_original_interaction_response(&ctx.http)
+        .await
+        .unwrap();
+    info!("User registering: {}", &author.name);
     let dm = author
         .direct_message(
             &ctx.http,
@@ -101,7 +116,7 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
                 .get_by_summoner_name(NA1, &account)
                 .await
             {
-                dbg!(err);
+                info!("Riot Api Error: {}", err);
             }
             let response = dm
                 .channel_id
@@ -165,7 +180,7 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
     }
     {
         let mut queue = QUEUE_MANAGER.lock().await;
-        let player = msg.author.id;
+        let player = author.id;
         queue.register_player(player, riot_accounts, msl_simga_value);
     }
     let response = dm
@@ -177,6 +192,5 @@ pub async fn register(ctx: &Context, msg: &Message) -> CommandResult {
         .await?;
     sleep(Duration::from_secs(3)).await;
     response.delete(&ctx.http).await?;
-    msg.delete(&ctx.http).await?;
     Ok(())
 }

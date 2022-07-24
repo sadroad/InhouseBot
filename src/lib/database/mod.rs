@@ -60,12 +60,16 @@ pub fn save_player(conn: &PgConnection, discord_id: &UserId, player_info: &Playe
 }
 
 pub fn remove_player(conn: &PgConnection, discord_id: &UserId) {
-    use schema::{player, player_ratings};
+    use schema::{game_roles, player, player_ratings};
 
     diesel::delete(player_ratings::table)
         .filter(player_ratings::discord_id.eq(*discord_id.as_u64() as i64))
         .execute(conn)
         .expect("Error deleting player ratings");
+    diesel::delete(game_roles::table)
+        .filter(game_roles::discord_id.eq(*discord_id.as_u64() as i64))
+        .execute(conn)
+        .expect("Error deleting game roles");
     diesel::delete(player::table)
         .filter(player::discord_id.eq(*discord_id.as_u64() as i64))
         .execute(conn)
