@@ -422,7 +422,10 @@ impl QueueManager {
     }
 
     pub async fn is_game_ready(&self, game_id: i32) -> bool {
-        let game = self.tentative_games.par_iter().find_any(|game| game.id == game_id);
+        let game = self
+            .tentative_games
+            .par_iter()
+            .find_any(|game| game.id == game_id);
         if game.is_none() {
             return false;
         }
@@ -1066,7 +1069,10 @@ impl QueueManager {
         guild_id: GuildId,
         game_id: i32,
     ) -> (String, String, String) {
-        let game = self.tentative_games.par_iter().find_any(|x| x.id == game_id);
+        let game = self
+            .tentative_games
+            .par_iter()
+            .find_any(|x| x.id == game_id);
         if game.is_none() {
             return ("".to_string(), "".to_string(), "".to_string());
         }
@@ -1081,7 +1087,10 @@ impl QueueManager {
         emoji: &ReactionType,
         game_id: i32,
     ) -> Result<(), ()> {
-        let game = self.tentative_games.par_iter_mut().find_any(|x| x.id == game_id);
+        let game = self
+            .tentative_games
+            .par_iter_mut()
+            .find_any(|x| x.id == game_id);
         if game.is_none() {
             return Ok(());
         }
@@ -1095,7 +1104,10 @@ impl QueueManager {
         emoji: &ReactionType,
         game_id: i32,
     ) -> bool {
-        let game = self.tentative_games.par_iter_mut().find_any(|x| x.id == game_id);
+        let game = self
+            .tentative_games
+            .par_iter_mut()
+            .find_any(|x| x.id == game_id);
         if game.is_none() {
             return false;
         }
@@ -1104,7 +1116,7 @@ impl QueueManager {
     }
 
     pub async fn set_message_id(&mut self, id: i32, message_id: MessageId) {
-        self.tentative_games.par_iter_mut().for_each(|game|{
+        self.tentative_games.par_iter_mut().for_each(|game| {
             if game.id == id {
                 game.message_id = message_id;
             }
@@ -1170,7 +1182,10 @@ impl QueueManager {
         guild_id: GuildId,
         riot: &str,
     ) {
-        let index = self.tentative_games.par_iter().position_any(|x| x.id == *game_id);
+        let index = self
+            .tentative_games
+            .par_iter()
+            .position_any(|x| x.id == *game_id);
         if index.is_none() {
             return;
         }
@@ -1216,7 +1231,10 @@ impl QueueManager {
         queue_id: ChannelId,
         message_id: MessageId,
     ) {
-        let game = self.tentative_games.par_iter().find_any(|game| game.id == *game_id);
+        let game = self
+            .tentative_games
+            .par_iter()
+            .find_any(|game| game.id == *game_id);
         match game {
             Some(game) => {
                 let mut team = game.team(0);

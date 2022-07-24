@@ -701,14 +701,7 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
                     let mut queue = QUEUE_MANAGER.lock().await;
                     let riot = data.get::<Riot>().unwrap();
                     queue
-                        .start_game(
-                            &game.0,
-                            ctx,
-                            queue_channel,
-                            message_id,
-                            guild_id,
-                            riot,
-                        )
+                        .start_game(&game.0, ctx, queue_channel, message_id, guild_id, riot)
                         .await;
                 }
             } else {

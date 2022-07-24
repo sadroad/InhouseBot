@@ -216,7 +216,7 @@ pub fn update_game(conn: &PgConnection, game: &Game, winner: bool) {
             blue_side: true,
         });
     }
-   for player in red_team {
+    for player in red_team {
         new_game_roles.push(NewGameRoles {
             game_id: game.get_id(),
             discord_id: i64::from(player.0),
