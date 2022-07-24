@@ -1,7 +1,4 @@
-use std::cmp::Ordering;
-use std::f64::EPSILON;
-
-use super::statistics::{phi_major, v, vt, w, wt};
+use super::statistics::phi_major;
 use super::utils::{gamma, score, team_rating};
 use serenity::model::id::UserId;
 
@@ -22,14 +19,6 @@ pub struct Rating {
 }
 
 impl Rating {
-    pub fn new(user_id: UserId) -> Rating {
-        Rating {
-            user_id,
-            mu: DEFAULT_MU,
-            sigma: DEFAULT_SIGMA,
-        }
-    }
-
     pub fn from(user_id: UserId, mu: f64, sigma: f64) -> Rating {
         Rating { user_id, mu, sigma }
     }
@@ -141,53 +130,6 @@ fn bt_full(teams: &Vec<Vec<Rating>>) -> Vec<Vec<Rating>> {
         result.push(team_result);
     }
     result
-}
-
-fn tm_full(teams: &[Vec<Rating>]) -> Vec<Vec<Rating>> {
-    let team_ratings = team_rating(teams);
-    let mut new_ratings: Vec<Vec<Rating>> = Vec::new();
-    for i in 0..team_ratings.len() {
-        let mut omega = 0.0;
-        let mut delta = 0.0;
-        let mut new_team: Vec<Rating> = Vec::new();
-        for q in 0..team_ratings.len() {
-            if q == i {
-                continue;
-            };
-            let ciq = f64::sqrt(team_ratings[i].1 + team_ratings[q].1 + TWO_BETA_SQUARED);
-            let tmp = (team_ratings[i].0 - team_ratings[q].0) / ciq;
-            let sigsq_to_ciq = team_ratings[i].1 / ciq;
-            let gamma = gamma(ciq, team_ratings[i].1);
-            match team_ratings[q].3.cmp(&team_ratings[i].3) {
-                Ordering::Greater => {
-                    omega += sigsq_to_ciq * v(tmp, EPSILON / ciq);
-                    delta += gamma * sigsq_to_ciq / ciq * w(tmp, EPSILON / ciq);
-                }
-                Ordering::Less => {
-                    omega += -sigsq_to_ciq * v(-tmp, EPSILON / ciq);
-                    delta += gamma * sigsq_to_ciq / ciq * w(-tmp, EPSILON / ciq);
-                }
-                Ordering::Equal => {
-                    omega += sigsq_to_ciq * vt(tmp, EPSILON / ciq);
-                    delta += gamma * sigsq_to_ciq / ciq * wt(tmp, EPSILON / ciq);
-                }
-            }
-        }
-        for player in team_ratings[i].2.iter() {
-            let sigmasq = player.sigma * player.sigma;
-            // dbg!(&player.user_id);
-            // dbg!(sigmasq);
-            // dbg!(sigmasq/team_ratings[i].1);
-            let new_mu = player.mu + (sigmasq / team_ratings[i].1) * omega;
-            let new_sigma = f64::sqrt(f64::max(
-                1.0 - sigmasq / team_ratings[i].1 * delta,
-                f64::EPSILON,
-            ));
-            new_team.push(Rating::from(player.user_id, new_mu, new_sigma));
-        }
-        new_ratings.push(new_team);
-    }
-    new_ratings
 }
 
 pub fn predicte_win(teams: &Vec<Vec<Rating>>) -> f64 {

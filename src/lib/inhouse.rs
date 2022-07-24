@@ -444,26 +444,25 @@ impl QueueManager {
                 return Err(String::from("Player is already in queue for two roles"));
             }
             let role = role.to_lowercase();
-            //TODO Add more aliases for roles
             match role.as_str() {
                 "top" => {
-                    p.queued.push("top".to_string());
+                    p.queued.push(role);
                     self.top.push_back(discord_id);
                 }
-                "jungle" | "jung" | "jg" | "jng" => {
-                    p.queued.push("jungle".to_string());
+                "jng" => {
+                    p.queued.push(role);
                     self.jungle.push_back(discord_id);
                 }
                 "mid" => {
-                    p.queued.push("mid".to_string());
+                    p.queued.push(role);
                     self.mid.push_back(discord_id);
                 }
-                "bot" | "adc" | "bottom" => {
-                    p.queued.push("bot".to_string());
+                "bot" => {
+                    p.queued.push(role);
                     self.bot.push_back(discord_id);
                 }
-                "support" | "sup" => {
-                    p.queued.push("support".to_string());
+                "sup" => {
+                    p.queued.push(role);
                     self.support.push_back(discord_id);
                 }
                 _ => return Err(String::from("Invalid role")),
@@ -491,21 +490,21 @@ impl QueueManager {
                     self.top.retain(|player| player != discord_id);
                     player.queued.retain(|role| role != "top");
                 }
-                "jungle" | "jung" | "jg" | "jng" => {
+                "jng" => {
                     self.jungle.retain(|player| player != discord_id);
-                    player.queued.retain(|role| role != "jungle");
+                    player.queued.retain(|role| role != "jng");
                 }
                 "mid" => {
                     self.mid.retain(|player| player != discord_id);
                     player.queued.retain(|role| role != "mid");
                 }
-                "bot" | "adc" | "bottom" => {
+                "bot" => {
                     self.bot.retain(|player| player != discord_id);
                     player.queued.retain(|role| role != "bot");
                 }
-                "support" | "sup" => {
+                "sup" => {
                     self.support.retain(|player| player != discord_id);
-                    player.queued.retain(|role| role != "support");
+                    player.queued.retain(|role| role != "sup");
                 }
                 _ => {
                     self.top.retain(|player| player != discord_id);
@@ -879,57 +878,62 @@ impl QueueManager {
         Some(self.missing_roles.iter().join(", "))
     }
 
-    pub async fn get_side(&self, player: UserId) -> (i32, String) {
+    pub async fn get_side(&self, player: UserId) -> Result<(i32, String), String> {
         for game in self.current_games.iter() {
             if game.player_in_game(&player) {
-                return game.get_side(player);
+                return Ok(game.get_side(player));
             }
         }
-        (0, String::from(""))
+        Err("Player not in game".to_string())
     }
 
     pub async fn display(&self, ctx: &Context, guild_id: GuildId) -> String {
-        let mut output = String::new();
-        output.push_str(&TOP_EMOJI.lock().unwrap());
+        let mut final_result = String::new();
+        let mut output: Vec<String> = Vec::new();
+        output.push(TOP_EMOJI.lock().unwrap().to_string());
         for player in self.top.iter() {
             let name = get_name(player, ctx, guild_id).await;
-            output.push_str(&name);
-            output.push(' ');
+            output.push(name);
         }
-        output.push('\n');
+        final_result.push_str(&output.join(", "));
+        final_result.push('\n');
+        output.clear();
 
-        output.push_str(&JG_EMOJI.lock().unwrap());
+        output.push(JG_EMOJI.lock().unwrap().to_string());
         for player in self.jungle.iter() {
             let name = get_name(player, ctx, guild_id).await;
-            output.push_str(&name);
-            output.push(' ');
+            output.push(name);
         }
-        output.push('\n');
+        final_result.push_str(&output.join(", "));
+        final_result.push('\n');
+        output.clear();
 
-        output.push_str(&MID_EMOJI.lock().unwrap());
+        output.push(MID_EMOJI.lock().unwrap().to_string());
         for player in self.mid.iter() {
             let name = get_name(player, ctx, guild_id).await;
-            output.push_str(&name);
-            output.push(' ');
+            output.push(name);
         }
-        output.push('\n');
+        final_result.push_str(&output.join(", "));
+        final_result.push('\n');
+        output.clear();
 
-        output.push_str(&BOT_EMOJI.lock().unwrap());
+        output.push(BOT_EMOJI.lock().unwrap().to_string());
         for player in self.bot.iter() {
             let name = get_name(player, ctx, guild_id).await;
-            output.push_str(&name);
-            output.push(' ');
+            output.push(name);
         }
-        output.push('\n');
+        final_result.push_str(&output.join(", "));
+        final_result.push('\n');
+        output.clear();
 
-        output.push_str(&SUP_EMOJI.lock().unwrap());
+        output.push(SUP_EMOJI.lock().unwrap().to_string());
         for player in self.support.iter() {
             let name = get_name(player, ctx, guild_id).await;
-            output.push_str(&name);
-            output.push(' ');
+            output.push(name);
         }
-        output.push('\n');
-        output
+        final_result.push_str(&output.join(", "));
+        final_result.push('\n');
+        final_result
     }
 
     pub async fn get_tentative_games(
@@ -945,7 +949,7 @@ impl QueueManager {
         result
     }
 
-    pub async fn requeue_players(&self, game_id: i32) -> String {
+    pub async fn players_to_requeue(&self, game_id: i32) -> String {
         let game = self.current_games.iter().find(|x| x.id == game_id);
         if game.is_none() {
             return String::from("Game not found");
@@ -1010,7 +1014,7 @@ impl QueueManager {
                             role = "top";
                         }
                         1 => {
-                            role = "jungle";
+                            role = "jng";
                         }
                         2 => {
                             role = "mid";
@@ -1019,7 +1023,7 @@ impl QueueManager {
                             role = "bot";
                         }
                         4 => {
-                            role = "support";
+                            role = "sup";
                         }
                         _ => {}
                     }
@@ -1209,13 +1213,14 @@ impl QueueManager {
                 }
                 for player in team.iter() {
                     match player.1 {
-                        0 => self.top.push_front(player.0),
-                        1 => self.jungle.push_front(player.0),
-                        2 => self.mid.push_front(player.0),
-                        3 => self.bot.push_front(player.0),
-                        4 => self.support.push_front(player.0),
+                        0 => self.queue_player(player.0, "top"),
+                        1 => self.queue_player(player.0, "jng"),
+                        2 => self.queue_player(player.0, "mid"),
+                        3 => self.queue_player(player.0, "bot"),
+                        4 => self.queue_player(player.0, "sup"),
                         _ => panic!("Invalid role"),
                     }
+                    .expect("Failed to queue player");
                 }
                 self.tentative_games.retain(|x| x.id != *game_id);
                 let _ = ctx
@@ -1390,39 +1395,34 @@ pub async fn get_msl_points(
             .unwrap();
         let mut winrate = String::new();
         let mut number_of_games = String::new();
-        let mut current_rank = String::new();
+        let mut current_rank = String::from("N/A");
         let mut current_rank_lp = String::new();
         for entry in ranked_info {
             if entry.queue_type == QueueType::RANKED_SOLO_5x5 {
+                dbg!(&entry);
                 winrate = format!(
                     "{}%",
                     (entry.wins as f32 / (entry.wins + entry.losses) as f32 * 100.0) as i64
                 );
                 number_of_games = format!("{}", entry.wins + entry.losses);
                 current_rank_lp = entry.league_points.to_string();
-                let mut tier = String::new();
                 match entry.tier.unwrap() {
-                    Tier::BRONZE => tier = "Bronze".to_string(),
-                    Tier::SILVER => tier = "Silver".to_string(),
-                    Tier::GOLD => tier = "Gold".to_string(),
-                    Tier::PLATINUM => tier = "Platinum".to_string(),
-                    Tier::DIAMOND => tier = "Diamond".to_string(),
-                    Tier::MASTER => tier = "Master".to_string(),
-                    Tier::GRANDMASTER => tier = "Grandmaster".to_string(),
-                    Tier::CHALLENGER => tier = "Challenger".to_string(),
-                    Tier::UNRANKED => tier = "N/A".to_string(),
+                    Tier::BRONZE => current_rank = "BRONZE".to_string(),
+                    Tier::SILVER => current_rank = "SILVER".to_string(),
+                    Tier::GOLD => current_rank = "GOLD".to_string(),
+                    Tier::PLATINUM => current_rank = "PLATINUM".to_string(),
+                    Tier::DIAMOND => current_rank = "DIAMOND".to_string(),
+                    Tier::MASTER => current_rank = "MASTER".to_string(),
+                    Tier::GRANDMASTER => current_rank = "GRANDMASTER".to_string(),
+                    Tier::CHALLENGER => current_rank = "CHALLENGER".to_string(),
                     _ => current_rank = "N/A".to_string(),
                 }
-                let mut division = String::new();
                 match entry.rank.unwrap() {
-                    Division::I => division = "1".to_string(),
-                    Division::II => division = "2".to_string(),
-                    Division::III => division = "3".to_string(),
-                    Division::IV => division = "4".to_string(),
+                    Division::I => current_rank = format!("{} {}", current_rank, "1"),
+                    Division::II => current_rank = format!("{} {}", current_rank, "2"),
+                    Division::III => current_rank = format!("{} {}", current_rank, "3"),
+                    Division::IV => current_rank = format!("{} {}", current_rank, "4"),
                     _ => current_rank = "N/A".to_string(),
-                }
-                if current_rank != "N/A" {
-                    current_rank = format!("{} {}", tier.to_uppercase(), division);
                 }
                 break;
             }
@@ -1452,7 +1452,7 @@ pub async fn get_msl_points(
     let mut lp_points;
     let mut ranked_point_index = 0;
     for account in accounts {
-        dbg!("{:?}", &account);
+        info!("Parsing account: {:#?}", &account);
         if account.account_level > account_level_max {
             account_level_max = account.account_level;
         }
@@ -1580,28 +1580,28 @@ pub async fn get_msl_points(
 }
 
 async fn get_name(player: &UserId, ctx: &Context, guild_id: GuildId) -> String {
-    // let name = if player == &0
-    //     || player == &1
-    //     || player == &2
-    //     || player == &3
-    //     || player == &4
-    //     || player == &5
-    //     || player == &6
-    //     || player == &7
-    //     || player == &8
-    //     || player == &9
-    // {
-    //     format!("Unknown {}", player)
-    // } else {
-    //     player.to_user(&ctx.http).await.unwrap().name
-    // };
-    let username = player.to_user(&ctx.http).await.unwrap().name;
-    let name = player
-        .to_user(&ctx.http)
-        .await
-        .unwrap()
-        .nick_in(&ctx.http, guild_id)
-        .await
-        .unwrap_or(username);
+    let name = if player == &0
+        || player == &1
+        || player == &2
+        || player == &3
+        || player == &4
+        || player == &5
+        || player == &6
+        || player == &7
+        || player == &8
+        || player == &9
+    {
+        format!("Unknown {}", player)
+    } else {
+        player.to_user(&ctx.http).await.unwrap().name
+    };
+    // let username = player.to_user(&ctx.http).await.unwrap().name;
+    // let name = player
+    //     .to_user(&ctx.http)
+    //     .await
+    //     .unwrap()
+    //     .nick_in(&ctx.http, guild_id)
+    //     .await
+    //     .unwrap_or(username);
     name
 }
