@@ -1,26 +1,9 @@
 # Custom Inhouse Bot
 
-## Implementation steps
+## Todo
 
-1. The ability for players to queue - Done
-2. Register summoner names for discord accounts - Done
-3. Save player data - Done
-   1. Postgresql database
-
-4. Create teams based on queued players - Done
-5. Allow players to accept and decline matches. - Here
-   1. Players to react to message
-   2. Once accepted change embed
-   3. save the game to the database
-   4. wait for a player to use .won command
-   5. 6+ react then the game is saved
-   6. update ranking and database
-
-6. Create an Elo system for better matchmaking - Done
-7. QoL Changes
+1. QoL Changes
    1. Buttons for queuing up alongside the commands
-   2. Ephemeral Messages instead of pings or mentions
-      1. https://docs.rs/serenity/0.11.2/serenity/builder/struct.CreateInteractionResponseFollowup.html#method.ephemeral
 
 
 ## Rules for the bot
@@ -34,11 +17,26 @@
 
 - How to run
   - .env file
-    - PREFIX=<prefix you would like defaults to "!">
     - DISCORD_TOKEN=<Your bot's token>
     - RGAPI_KEY=\<Your Riot Api key>
-  - Instead of cargo run, use make run
-    - Loads .env variables into a local instance of the environment for the command
+    - POSTGRES_PASSWORD=<Don't use the default>
+    - DATABASE_URL=\<Pointing to a valid Postgres DB named mochi>
+    - LOADING_EMOJI=\<ID of Discord emoji>
+      - Use \\\<emoji> to get the id
+      - \<a:loading:11112222333444> - example id
+  - Diesel CLI
+    - The project requires the Diesel CLI to run and setup the migrations for the DB
+  - Makefile
+    - run
+      - Loads env variables and runs bot using cargo
+    - migrate
+      - Used with the Diesel CLI
+    - revert
+      - Used with the Diesel CLI
+    - generate
+      - Used with the Diesel CLI
+  - Docker Compose
+    - Docker compose file is included for easy setup
 - Requires these perms in Discord
   - Read Messages/View Channels
   - Send Messages
@@ -46,22 +44,35 @@
   - Add Reactions
   - Read Message History
   - Manage Messages
-- all commands with the "\<prefix>admin" require the user to be an Administrator
+- all commands with the "/admin" require the user to be an Administrator
 - Command Groups
   - General
     - queue
-      - Usage: \<prefix>queue \<role>
+      - Usage: /queue \<role>
     - leave
-      - Usage: \<prefix>leave
+      - Usage: /leave
     - register
       - Sends registration info in DM's
       - All logic is done in DM's. Nothing will be shown in server channels.
       - Same as MSL register, but with fewer restrictions to pass
+    - won
+      - Confirm a game as won and start vote
+    - cancel
+      - Cancel a game that was confirmed
+    - clear
+      - Create a vote to clear the queue
+    - remove
+      - Usage: /remove @player
+      - Create a vote to remove a player from the queue
   - Admin
     - mark
       - Sets the current channel to be the queue channel
     - unmark
       - Removes the current channel from being the queue channel
-    - role_emojis
-      - Alias: roleEmojis
-      - Usage: .admin roleEmojis \<topEmoji> \<jgEmoji> \<midEmoji> \<botEmoji> \<supEmoji>
+    - setemojis
+      - Usage: /admin setemojis \<topEmoji> \<jgEmoji> \<midEmoji> \<botEmoji> \<supEmoji>
+    - clear
+      - Clear the queue without a vote
+    - remove
+      - Usage: /admin remove @player
+      - Remove a player without a vote
