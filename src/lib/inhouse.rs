@@ -611,7 +611,7 @@ impl QueueManager {
         true
     }
 
-    async fn find_game(&mut self) -> Game {
+    async fn find_game(&mut self) -> Option<Game> {
         //TODO this needs a lot of work, no O(n^2), disgusting function just rewrite
         let mut final_team: Vec<Vec<UserId>> = Vec::new();
         let mut index = 0;
@@ -789,13 +789,16 @@ impl QueueManager {
         while let Some(player) = tmp_support.pop_back() {
             self.support.push_front(player);
         }
+        if final_team.is_empty() {
+            return None;
+        }
         for player in final_team[0].iter().chain(final_team[1].iter()) {
             let result = self.leave_queue(*player, "");
             if let Err(e) = result {
                 error!("{}", e);
             }
         }
-        Game::from(self, final_team, team1_winrate)
+        Some(Game::from(self, final_team, team1_winrate))
     }
 
     fn get_roles(&self, player: &UserId) -> Option<Vec<&str>> {
@@ -864,9 +867,17 @@ impl QueueManager {
         {
             info!("Starting game");
             let game = self.find_game().await;
-            info!("Found game");
-            self.tentative_games.push(game);
-            true
+            match game {
+                Some(game) => {
+                    info!("Found game");
+                    self.tentative_games.push(game);
+                    true
+                },
+                None => {
+                    info!("No game could be found within acceptable winrate");
+                    false
+                }
+            }
         } else {
             //TODO Roles are not shown in order but like cba
             let mut missing_roles = missing_roles.1;
@@ -1611,29 +1622,29 @@ pub async fn get_msl_points(
     Ok(player_points.into())
 }
 
-async fn get_name(player: &UserId, ctx: &Context, _guild_id: GuildId) -> String {
-    let name = if player == &0
-        || player == &1
-        || player == &2
-        || player == &3
-        || player == &4
-        || player == &5
-        || player == &6
-        || player == &7
-        || player == &8
-        || player == &9
-    {
-        format!("Unknown {}", player)
-    } else {
-        player.to_user(&ctx.http).await.unwrap().name
-    };
-    // let username = player.to_user(&ctx.http).await.unwrap().name;
-    // let name = player
-    //     .to_user(&ctx.http)
-    //     .await
-    //     .unwrap()
-    //     .nick_in(&ctx.http, guild_id)
-    //     .await
-    //     .unwrap_or(username);
+async fn get_name(player: &UserId, ctx: &Context, guild_id: GuildId) -> String {
+    // let name = if player == &0
+    //     || player == &1
+    //     || player == &2
+    //     || player == &3
+    //     || player == &4
+    //     || player == &5
+    //     || player == &6
+    //     || player == &7
+    //     || player == &8
+    //     || player == &9
+    // {
+    //     format!("Unknown {}", player)
+    // } else {
+    //     player.to_user(&ctx.http).await.unwrap().name
+    // };
+    let username = player.to_user(&ctx.http).await.unwrap().name;
+    let name = player
+        .to_user(&ctx.http)
+        .await
+        .unwrap()
+        .nick_in(&ctx.http, guild_id)
+        .await
+        .unwrap_or(username);
     name
 }
