@@ -433,7 +433,7 @@ impl QueueManager {
         game.is_ready().await
     }
 
-    pub fn queue_player(
+    pub async fn queue_player(
         &mut self,
         discord_id: UserId,
         role: &str,
@@ -594,11 +594,11 @@ impl QueueManager {
         }
         for player in team.iter() {
             if let Err(e) = match player.1 {
-                0 => self.queue_player(player.0, "top", true),
-                1 => self.queue_player(player.0, "jng", true),
-                2 => self.queue_player(player.0, "mid", true),
-                3 => self.queue_player(player.0, "bot", true),
-                4 => self.queue_player(player.0, "sup", true),
+                0 => self.queue_player(player.0, "top", true).await,
+                1 => self.queue_player(player.0, "jng", true).await,
+                2 => self.queue_player(player.0, "mid", true).await,
+                3 => self.queue_player(player.0, "bot", true).await,
+                4 => self.queue_player(player.0, "sup", true).await,
                 _ => panic!("Invalid role"),
             } {
                 error!("{}", e);
@@ -612,6 +612,7 @@ impl QueueManager {
     }
 
     async fn find_game(&mut self) -> Option<Game> {
+        coz::scope!("finding a game");
         //TODO this needs a lot of work, no O(n^2), disgusting function just rewrite
         let mut final_team: Vec<Vec<UserId>> = Vec::new();
         let mut index = 0;
@@ -1057,7 +1058,7 @@ impl QueueManager {
                         }
                         _ => {}
                     }
-                    if let Err(e) = self.queue_player(user_id, role, false) {
+                    if let Err(e) = self.queue_player(user_id, role, false).await {
                         let response = queue_id
                             .say(&ctx.http, format!("{}\nError: {}", user_id, e))
                             .await
@@ -1098,6 +1099,7 @@ impl QueueManager {
         emoji: &ReactionType,
         game_id: i32,
     ) -> Result<(), ()> {
+        coz::scope!("Updating the status of a player");
         let game = self
             .tentative_games
             .par_iter_mut()
@@ -1265,6 +1267,7 @@ impl QueueManager {
                         4 => self.queue_player(player.0, "sup", true),
                         _ => panic!("Invalid role"),
                     }
+                    .await
                     .expect("Failed to queue player");
                 }
                 let _ = ctx
@@ -1623,28 +1626,28 @@ pub async fn get_msl_points(
 }
 
 async fn get_name(player: &UserId, ctx: &Context, guild_id: GuildId) -> String {
-    // let name = if player == &0
-    //     || player == &1
-    //     || player == &2
-    //     || player == &3
-    //     || player == &4
-    //     || player == &5
-    //     || player == &6
-    //     || player == &7
-    //     || player == &8
-    //     || player == &9
-    // {
-    //     format!("Unknown {}", player)
-    // } else {
-    //     player.to_user(&ctx.http).await.unwrap().name
-    // };
-    let username = player.to_user(&ctx.http).await.unwrap().name;
-    let name = player
-        .to_user(&ctx.http)
-        .await
-        .unwrap()
-        .nick_in(&ctx.http, guild_id)
-        .await
-        .unwrap_or(username);
+    let name = if player == &0
+        || player == &1
+        || player == &2
+        || player == &3
+        || player == &4
+        || player == &5
+        || player == &6
+        || player == &7
+        || player == &8
+        || player == &9
+    {
+        format!("Unknown {}", player)
+    } else {
+        player.to_user(&ctx.http).await.unwrap().name
+    };
+    // let username = player.to_user(&ctx.http).await.unwrap().name;
+    // let name = player
+    //     .to_user(&ctx.http)
+    //     .await
+    //     .unwrap()
+    //     .nick_in(&ctx.http, guild_id)
+    //     .await
+    //     .unwrap_or(username);
     name
 }

@@ -258,33 +258,43 @@ pub async fn test(
         info!("Done. Adding to queue");
         queue
             .queue_player(UserId(0), &String::from("top"), false)
+            .await
             .unwrap();
         queue
             .queue_player(UserId(1), &String::from("top"), false)
+            .await
             .unwrap();
         queue
             .queue_player(UserId(2), &String::from("jng"), false)
+            .await
             .unwrap();
         queue
             .queue_player(UserId(3), &String::from("jng"), false)
+            .await
             .unwrap();
         queue
             .queue_player(UserId(4), &String::from("mid"), false)
+            .await
             .unwrap();
         queue
             .queue_player(UserId(5), &String::from("mid"), false)
+            .await
             .unwrap();
         queue
             .queue_player(UserId(6), &String::from("bot"), false)
+            .await
             .unwrap();
         queue
             .queue_player(UserId(7), &String::from("bot"), false)
+            .await
             .unwrap();
         queue
             .queue_player(UserId(8), &String::from("sup"), false)
+            .await
             .unwrap();
         queue
             .queue_player(UserId(9), &String::from("sup"), false)
+            .await
             .unwrap();
         info!("Done.");
     }

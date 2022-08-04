@@ -8,3 +8,5 @@ Cargo.lock
 .vscode
 .env.docker
 .docker
+.DS_Store
+.env.local

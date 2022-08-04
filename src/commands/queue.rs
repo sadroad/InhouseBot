@@ -31,7 +31,7 @@ pub async fn queue(
         let mut queue = QUEUE_MANAGER.lock().await;
         dbg!("after lock");
         dbg!("queing player");
-        result = queue.queue_player(player, role, false);
+        result = queue.queue_player(player, role, false).await;
     } else {
         error!("No role specified, somehow past discord");
     }
@@ -576,6 +576,7 @@ pub async fn display(ctx: &Context, guild_id: GuildId) {
 
 #[async_recursion]
 pub async fn show_games(ctx: &Context, guild_id: GuildId) {
+    coz::scope!("showing the games");
     let tentative_games;
     let queue_channel;
     {
@@ -613,28 +614,34 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
                 .timeout(Duration::from_secs(180))
                 .build()
                 .unwrap();
-            dbg!("stuck waitin");
             let mut game_ready = false;
+            coz::progress!("Before the collections of the reactions");
             'collector: while let Some(event) = collector.next().await {
-                dbg!("didn't even make it");
+                coz::progress!("Found a reaction");
                 match event.as_ref() {
                     Event::ReactionAdd(e) => {
                         let reaction = &e.reaction;
                         dbg!("{:?}", &reaction.emoji);
                         let result;
                         {
+                            coz::progress!("Waiting for a lock on the mutex");
                             let mut queue = QUEUE_MANAGER.lock().await;
+                            coz::progress!("Lock granted");
                             result = queue
                                 .update_status(reaction.user_id.unwrap(), &reaction.emoji, game.0)
                                 .await;
+                            coz::progress!("Updated the status");
                         }
                         dbg!(&result);
                         match result {
                             Ok(_) => {
                                 let body;
                                 {
+                                    coz::progress!("Waiting for lock on mutex for getting the body of the game");
                                     let queue = QUEUE_MANAGER.lock().await;
+                                    coz::progress!("Lock granted for body of game");
                                     body = queue.get_emebed_body(ctx, guild_id, game.0).await;
+                                    coz::progress!("Got the body of the game");
                                 }
                                 queue_channel
                                     .edit_message(&ctx.http, message_id, |m| {
