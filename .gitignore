@@ -10,3 +10,4 @@ Cargo.lock
 .docker
 .DS_Store
 .env.local
+.env.remote

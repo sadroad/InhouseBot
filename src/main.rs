@@ -309,7 +309,6 @@ impl EventHandler for Handler {
 //Ignore the following error, rust-analyzer is causing a false positive
 #[tokio::main]
 async fn main() {
-    coz::thread_init();
     tracing_subscriber::fmt::init();
     let token =
         env::var("DISCORD_TOKEN").expect("Expected to find a discord token in the environment");

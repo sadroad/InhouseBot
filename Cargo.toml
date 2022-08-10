@@ -19,7 +19,6 @@ itertools = "0.10"
 ordered-float = "3.0"
 async-recursion = "1.0.0"
 rayon = "1.5"
-coz="0.1"
 
 [dependencies.tokio]
 version = "1"

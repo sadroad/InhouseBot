@@ -612,7 +612,6 @@ impl QueueManager {
     }
 
     async fn find_game(&mut self) -> Option<Game> {
-        coz::scope!("finding a game");
         //TODO this needs a lot of work, no O(n^2), disgusting function just rewrite
         let mut final_team: Vec<Vec<UserId>> = Vec::new();
         let mut index = 0;
@@ -873,7 +872,7 @@ impl QueueManager {
                     info!("Found game");
                     self.tentative_games.push(game);
                     true
-                },
+                }
                 None => {
                     info!("No game could be found within acceptable winrate");
                     false
@@ -1099,7 +1098,6 @@ impl QueueManager {
         emoji: &ReactionType,
         game_id: i32,
     ) -> Result<(), ()> {
-        coz::scope!("Updating the status of a player");
         let game = self
             .tentative_games
             .par_iter_mut()
