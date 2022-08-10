@@ -12,7 +12,7 @@ const TWO_BETA_SQUARED: f64 = 2.0 * BETA_SQUARED;
 const TAU: f64 = 0.083;
 const TAU_SQUARED: f64 = TAU * TAU;
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct Rating {
     pub user_id: UserId,
     pub mu: f64,
@@ -37,7 +37,7 @@ pub fn rate(teams: &[Vec<Rating>]) -> Vec<Vec<Rating>> {
             let team = team
                 .par_iter()
                 .map(|rating| {
-                    let mut rating = rating.clone();
+                    let mut rating = *rating;
                     rating.sigma = f64::sqrt(rating.sigma * rating.sigma * TAU_SQUARED);
                     rating
                 })

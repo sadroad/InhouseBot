@@ -14,9 +14,9 @@ use scraper::{Html, Selector};
 use serde_json::Value;
 use serenity::model::channel::ReactionType;
 
+use rustc_hash::{FxHashMap, FxHashSet};
 use serenity::model::id::{ChannelId, GuildId, MessageId, UserId};
 use serenity::prelude::Context;
-use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::VecDeque;
 use std::fmt::Write as _;
 use std::sync::RwLock;
@@ -75,14 +75,14 @@ pub struct QueueManager {
     missing_roles: FxHashSet<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Player {
     pub riot_accounts: Vec<String>, // list of puuids for each account
     pub queued: Vec<String>,
     pub rating: Rating,
 }
 
-#[derive(Clone, Eq, PartialEq, Hash)]
+#[derive(Eq, PartialEq, Hash)]
 pub struct Game {
     id: i32,
     message_id: MessageId,
@@ -735,18 +735,18 @@ impl QueueManager {
                     }
 
                     let team1 = vec![
-                        self.players.get(&top).unwrap().rating.clone(),
-                        self.players.get(&jng).unwrap().rating.clone(),
-                        self.players.get(&mid).unwrap().rating.clone(),
-                        self.players.get(&bot).unwrap().rating.clone(),
-                        self.players.get(&sup).unwrap().rating.clone(),
+                        self.players.get(&top).unwrap().rating,
+                        self.players.get(&jng).unwrap().rating,
+                        self.players.get(&mid).unwrap().rating,
+                        self.players.get(&bot).unwrap().rating,
+                        self.players.get(&sup).unwrap().rating,
                     ];
                     let team2 = vec![
-                        self.players.get(&top2).unwrap().rating.clone(),
-                        self.players.get(&jng2).unwrap().rating.clone(),
-                        self.players.get(&mid2).unwrap().rating.clone(),
-                        self.players.get(&bot2).unwrap().rating.clone(),
-                        self.players.get(&sup2).unwrap().rating.clone(),
+                        self.players.get(&top2).unwrap().rating,
+                        self.players.get(&jng2).unwrap().rating,
+                        self.players.get(&mid2).unwrap().rating,
+                        self.players.get(&bot2).unwrap().rating,
+                        self.players.get(&sup2).unwrap().rating,
                     ];
                     let teams = vec![team1, team2];
                     team1_winrate = predicte_win(&teams);
@@ -1013,11 +1013,11 @@ impl QueueManager {
         let red = game_final.team(1);
         let blue_ratings: Vec<Rating> = blue
             .par_iter()
-            .map(|x| self.players.get(&x.0).unwrap().rating.clone())
+            .map(|x| self.players.get(&x.0).unwrap().rating)
             .collect();
         let red_ratings: Vec<Rating> = red
             .par_iter()
-            .map(|x| self.players.get(&x.0).unwrap().rating.clone())
+            .map(|x| self.players.get(&x.0).unwrap().rating)
             .collect();
         let new_ratings = if game.1 == "Blue" {
             rate(&[blue_ratings, red_ratings])
@@ -1027,7 +1027,7 @@ impl QueueManager {
         for team in new_ratings {
             for player in team {
                 let user_id = player.user_id;
-                let rating = player.clone();
+                let rating = player;
                 self.players.get_mut(&user_id).unwrap().rating = player;
                 let conn = DBCONNECTION.db_connection.get().unwrap();
                 update_rating(&conn, &user_id, &rating);
@@ -1180,7 +1180,7 @@ impl QueueManager {
                 let name = result.unwrap().name;
                 tmp.push(name);
             }
-            players_summoner_names.push(tmp.join(", "));
+            players_summoner_names.push(tmp.join(", ").replace(" ", "%20"));
         }
         format!("**\nBlue OP.GG**: https://na.op.gg/multisearch/na?summoners={}\n**Red OP.GG**: https://na.op.gg/multisearch/na?summoners={}", players_summoner_names[0], players_summoner_names[1])
     }
@@ -1625,28 +1625,28 @@ pub async fn get_msl_points(
 }
 
 async fn get_name(player: &UserId, ctx: &Context, guild_id: GuildId) -> String {
-    let name = if player == &0
-        || player == &1
-        || player == &2
-        || player == &3
-        || player == &4
-        || player == &5
-        || player == &6
-        || player == &7
-        || player == &8
-        || player == &9
-    {
-        format!("Unknown {}", player)
-    } else {
-        player.to_user(&ctx.http).await.unwrap().name
-    };
-    // let username = player.to_user(&ctx.http).await.unwrap().name;
-    // let name = player
-    //     .to_user(&ctx.http)
-    //     .await
-    //     .unwrap()
-    //     .nick_in(&ctx.http, guild_id)
-    //     .await
-    //     .unwrap_or(username);
+    // let name = if player == &0
+    //     || player == &1
+    //     || player == &2
+    //     || player == &3
+    //     || player == &4
+    //     || player == &5
+    //     || player == &6
+    //     || player == &7
+    //     || player == &8
+    //     || player == &9
+    // {
+    //     format!("Unknown {}", player)
+    // } else {
+    //     player.to_user(&ctx.http).await.unwrap().name
+    // };
+    let username = player.to_user(&ctx.http).await.unwrap().name;
+    let name = player
+        .to_user(&ctx.http)
+        .await
+        .unwrap()
+        .nick_in(&ctx.http, guild_id)
+        .await
+        .unwrap_or(username);
     name
 }
