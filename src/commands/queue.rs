@@ -28,7 +28,7 @@ pub async fn queue(
         Some(role) => role.resolved.as_ref().expect("Expected a string"),
         None => &tmp,
     } {
-        let mut queue = QUEUE_MANAGER.lock().await;
+        let mut queue = QUEUE_MANAGER.write().await;
         dbg!("after lock");
         dbg!("queing player");
         result = queue.queue_player(player, role, false).await;
@@ -58,7 +58,7 @@ pub async fn queue(
         sleep(Duration::from_secs(7200)).await;
         let result;
         {
-            let mut queue = QUEUE_MANAGER.lock().await;
+            let mut queue = QUEUE_MANAGER.write().await;
             result = queue.leave_queue(player, "");
             dbg!(&result);
         }
@@ -97,7 +97,7 @@ pub async fn queue(
 
     let result;
     {
-        let mut queue = QUEUE_MANAGER.lock().await;
+        let mut queue = QUEUE_MANAGER.write().await;
         result = queue.check_for_game().await;
     }
     dbg!("getting guild id ");
@@ -131,7 +131,7 @@ pub async fn leave(
 }
 
 async fn internal_leave(user: UserId, role: &str) {
-    let mut queue = QUEUE_MANAGER.lock().await;
+    let mut queue = QUEUE_MANAGER.write().await;
     queue.leave_queue(user, role).unwrap();
 }
 
@@ -143,7 +143,7 @@ pub async fn won(
     let user = command.user.id;
     let game;
     {
-        let queue = QUEUE_MANAGER.lock().await;
+        let queue = QUEUE_MANAGER.read().await;
         game = queue.get_side(user).await;
     }
     match game {
@@ -191,7 +191,7 @@ pub async fn won(
                                 response.delete(&ctx.http).await?;
                                 let mentions;
                                 {
-                                    let queue = QUEUE_MANAGER.lock().await;
+                                    let queue = QUEUE_MANAGER.read().await;
                                     mentions = queue.players_to_requeue(game.0).await;
                                 }
                                 let no_requeue = channel_id.say(&ctx.http, &format!("{}\n I will requeue you in 5 seconds. If you **dont** want to be queued, react with a ❌", mentions)).await?;
@@ -232,7 +232,7 @@ pub async fn won(
                                 }
                                 no_requeue.delete(&ctx.http).await?;
                                 {
-                                    let mut queue = QUEUE_MANAGER.lock().await;
+                                    let mut queue = QUEUE_MANAGER.write().await;
                                     queue.win(game, ctx, channel_id, dont_queue).await;
                                 }
                                 display(ctx, guild_id).await;
@@ -284,7 +284,7 @@ pub async fn cancel(
     let result;
     {
         let data = ctx.data.read().await;
-        let mut queue = QUEUE_MANAGER.lock().await;
+        let mut queue = QUEUE_MANAGER.write().await;
         let queue_channel = *data.get::<QueueChannel>().unwrap().lock().await;
         result = queue.cancel_game(user, ctx, queue_channel).await;
     }
@@ -310,7 +310,7 @@ pub async fn cancel(
         let guild_id = command.guild_id.unwrap();
         let result;
         {
-            let mut queue = QUEUE_MANAGER.lock().await;
+            let mut queue = QUEUE_MANAGER.write().await;
             result = queue.check_for_game().await;
         }
         display(ctx, guild_id).await;
@@ -380,7 +380,7 @@ pub async fn vote_clear(
                         response.delete(&ctx.http).await?;
                         let guild_id = command.guild_id.unwrap();
                         {
-                            let mut queue = QUEUE_MANAGER.lock().await;
+                            let mut queue = QUEUE_MANAGER.write().await;
                             queue.clear_queue().await;
                         }
                         display(ctx, guild_id).await;
@@ -486,7 +486,7 @@ pub async fn vote_remove(
                                 response.delete(&ctx.http).await?;
                                 let guild_id = command.guild_id.unwrap();
                                 {
-                                    let mut queue = QUEUE_MANAGER.lock().await;
+                                    let mut queue = QUEUE_MANAGER.write().await;
                                     queue.leave_queue(user.id, "").unwrap();
                                 }
                                 display(ctx, guild_id).await;
@@ -526,7 +526,7 @@ pub async fn display(ctx: &Context, guild_id: GuildId) {
     let queue_channel;
     {
         let data = ctx.data.read().await;
-        let queue = QUEUE_MANAGER.lock().await;
+        let queue = QUEUE_MANAGER.read().await;
         queue_channel = *data.get::<QueueChannel>().unwrap().lock().await;
         if let Some(missing) = queue.get_missing_roles().await {
             missing_roles = missing;
@@ -580,7 +580,7 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
     let queue_channel;
     {
         let data = ctx.data.read().await;
-        let queue = QUEUE_MANAGER.lock().await;
+        let queue = QUEUE_MANAGER.read().await;
         tentative_games = queue.get_tentative_games(ctx, guild_id).await;
         queue_channel = *data.get::<QueueChannel>().unwrap().lock().await;
     }
@@ -601,7 +601,7 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
                 }).await.unwrap();
             let message_id = response.id;
             {
-                let mut queue = QUEUE_MANAGER.lock().await;
+                let mut queue = QUEUE_MANAGER.write().await;
                 queue.set_message_id(game.0, message_id).await;
             }
             response.react(&ctx.http, '✅').await.unwrap();
@@ -621,7 +621,7 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
                         dbg!("{:?}", &reaction.emoji);
                         let result;
                         {
-                            let mut queue = QUEUE_MANAGER.lock().await;
+                            let mut queue = QUEUE_MANAGER.write().await;
                             result = queue
                                 .update_status(reaction.user_id.unwrap(), &reaction.emoji, game.0)
                                 .await;
@@ -631,7 +631,7 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
                             Ok(_) => {
                                 let body;
                                 {
-                                    let queue = QUEUE_MANAGER.lock().await;
+                                    let queue = QUEUE_MANAGER.read().await;
                                     body = queue.get_emebed_body(ctx, guild_id, game.0).await;
                                 }
                                 queue_channel
@@ -656,7 +656,7 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
                         let reaction = &e.reaction;
                         let result;
                         {
-                            let mut queue = QUEUE_MANAGER.lock().await;
+                            let mut queue = QUEUE_MANAGER.write().await;
                             result = queue
                                 .unready(reaction.user_id.unwrap(), &reaction.emoji, game.0)
                                 .await;
@@ -664,7 +664,7 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
                         if result {
                             let body;
                             {
-                                let queue = QUEUE_MANAGER.lock().await;
+                                let queue = QUEUE_MANAGER.read().await;
                                 body = queue.get_emebed_body(ctx, guild_id, game.0).await;
                             }
                             queue_channel
@@ -685,7 +685,7 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
                 }
                 dbg!("checking if game is ready");
                 {
-                    let queue = QUEUE_MANAGER.lock().await;
+                    let queue = QUEUE_MANAGER.read().await;
                     game_ready = queue.is_game_ready(game.0).await;
                 }
                 if game_ready {
@@ -696,7 +696,7 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
                 dbg!("starting game");
                 {
                     let data = ctx.data.read().await;
-                    let mut queue = QUEUE_MANAGER.lock().await;
+                    let mut queue = QUEUE_MANAGER.write().await;
                     let riot = data.get::<Riot>().unwrap();
                     queue
                         .start_game(&game.0, ctx, queue_channel, message_id, guild_id, riot)
@@ -706,7 +706,7 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
                 dbg!("adding players back to queue");
                 let result;
                 {
-                    let mut queue = QUEUE_MANAGER.lock().await;
+                    let mut queue = QUEUE_MANAGER.write().await;
                     queue
                         .remove_game(&game.0, ctx, queue_channel, message_id)
                         .await;

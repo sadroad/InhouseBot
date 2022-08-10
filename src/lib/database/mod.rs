@@ -113,11 +113,11 @@ pub async fn init_server_info(conn: &PgConnection, ctx: &Arc<Http>) -> ChannelId
         let new_server_information = NewServerInformation {
             queue_channel: 0,
             command_channel: 0,
-            top_emoji: TOP_EMOJI.lock().unwrap().to_string(),
-            jungle_emoji: JG_EMOJI.lock().unwrap().to_string(),
-            mid_emoji: MID_EMOJI.lock().unwrap().to_string(),
-            bot_emoji: BOT_EMOJI.lock().unwrap().to_string(),
-            sup_emoji: SUP_EMOJI.lock().unwrap().to_string(),
+            top_emoji: TOP_EMOJI.read().unwrap().to_string(),
+            jungle_emoji: JG_EMOJI.read().unwrap().to_string(),
+            mid_emoji: MID_EMOJI.read().unwrap().to_string(),
+            bot_emoji: BOT_EMOJI.read().unwrap().to_string(),
+            sup_emoji: SUP_EMOJI.read().unwrap().to_string(),
         };
 
         diesel::insert_into(server_information::table)
@@ -129,11 +129,11 @@ pub async fn init_server_info(conn: &PgConnection, ctx: &Arc<Http>) -> ChannelId
         let server_info = server_info.first().unwrap();
         let queue_channel = ChannelId::from(server_info.queue_channel as u64);
         clear_channel(ctx, queue_channel).await;
-        *TOP_EMOJI.lock().unwrap() = server_info.top_emoji.clone();
-        *JG_EMOJI.lock().unwrap() = server_info.jungle_emoji.clone();
-        *MID_EMOJI.lock().unwrap() = server_info.mid_emoji.clone();
-        *BOT_EMOJI.lock().unwrap() = server_info.bot_emoji.clone();
-        *SUP_EMOJI.lock().unwrap() = server_info.sup_emoji.clone();
+        *TOP_EMOJI.write().unwrap() = server_info.top_emoji.clone();
+        *JG_EMOJI.write().unwrap() = server_info.jungle_emoji.clone();
+        *MID_EMOJI.write().unwrap() = server_info.mid_emoji.clone();
+        *BOT_EMOJI.write().unwrap() = server_info.bot_emoji.clone();
+        *SUP_EMOJI.write().unwrap() = server_info.sup_emoji.clone();
         queue_channel
     }
 }

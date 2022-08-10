@@ -28,7 +28,7 @@ pub async fn register(
 ) -> Result<(), SerenityError> {
     let author = &command.member.as_ref().unwrap().user;
     {
-        let queue = QUEUE_MANAGER.lock().await;
+        let queue = QUEUE_MANAGER.read().await;
         let player = author.id;
         if let Err(e) = queue.check_registered_player(player) {
             return command
@@ -133,7 +133,7 @@ pub async fn register(
     let mut riot_accounts: Vec<String> = Vec::new();
     let mut opgg_list: Vec<(String, String, i32)> = Vec::new();
     for (name, puuid, id, level) in puuids {
-        let queue = QUEUE_MANAGER.lock().await;
+        let queue = QUEUE_MANAGER.read().await;
         if queue.check_puuid(&puuid).is_err() {
             let response = dm
                 .channel_id
@@ -179,7 +179,7 @@ pub async fn register(
         return Ok(());
     }
     {
-        let mut queue = QUEUE_MANAGER.lock().await;
+        let mut queue = QUEUE_MANAGER.write().await;
         let player = author.id;
         queue.register_player(player, riot_accounts, msl_simga_value);
     }

@@ -11,3 +11,4 @@ Cargo.lock
 .DS_Store
 .env.local
 .env.remote
+flamegraph.svg

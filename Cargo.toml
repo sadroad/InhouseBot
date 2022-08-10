@@ -1,6 +1,6 @@
 [package]
 name = "bot"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2021"
 include = ["src/**/*", "README.md"]
 
@@ -19,6 +19,7 @@ itertools = "0.10"
 ordered-float = "3.0"
 async-recursion = "1.0.0"
 rayon = "1.5"
+rustc-hash = "1.1"
 
 [dependencies.tokio]
 version = "1"
@@ -36,3 +37,4 @@ features = ["rustls-tls",]
 
 [profile.release]
 debug=1
+lto=true

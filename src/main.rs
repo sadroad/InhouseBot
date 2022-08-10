@@ -17,6 +17,7 @@ use crate::lib::inhouse::*;
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use lazy_static::lazy_static;
 use serenity::async_trait;
@@ -41,8 +42,8 @@ lazy_static! {
     };
     pub static ref LOADING_EMOJI: String =
         env::var("LOADING_EMOJI").unwrap_or_else(|_| "🔍".to_string());
-    pub static ref QUEUE_MANAGER: Arc<Mutex<QueueManager>> =
-        Arc::new(Mutex::new(QueueManager::new()));
+    pub static ref QUEUE_MANAGER: Arc<RwLock<QueueManager>> =
+        Arc::new(RwLock::new(QueueManager::new()));
 }
 
 pub struct ShardManagerContainer;

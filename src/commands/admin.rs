@@ -213,15 +213,15 @@ pub async fn role_emojis(
 ) -> Result<(), SerenityError> {
     let mut args = sub_command.options.iter();
     let top = rem_front_last(&args.next().unwrap().value.as_ref().unwrap().to_string());
-    *TOP_EMOJI.lock().unwrap() = format!("{} ", top);
+    *TOP_EMOJI.write().unwrap() = format!("{} ", top);
     let jg = rem_front_last(&args.next().unwrap().value.as_ref().unwrap().to_string());
-    *JG_EMOJI.lock().unwrap() = format!("{} ", jg);
+    *JG_EMOJI.write().unwrap() = format!("{} ", jg);
     let mid = rem_front_last(&args.next().unwrap().value.as_ref().unwrap().to_string());
-    *MID_EMOJI.lock().unwrap() = format!("{} ", mid);
+    *MID_EMOJI.write().unwrap() = format!("{} ", mid);
     let bot = rem_front_last(&args.next().unwrap().value.as_ref().unwrap().to_string());
-    *BOT_EMOJI.lock().unwrap() = format!("{} ", bot);
+    *BOT_EMOJI.write().unwrap() = format!("{} ", bot);
     let sup = rem_front_last(&args.next().unwrap().value.as_ref().unwrap().to_string());
-    *SUP_EMOJI.lock().unwrap() = format!("{} ", sup);
+    *SUP_EMOJI.write().unwrap() = format!("{} ", sup);
     {
         let conn = DBCONNECTION.db_connection.get().unwrap();
         update_emoji(&conn, [&top, &jg, &mid, &bot, &sup]);
@@ -245,7 +245,7 @@ pub async fn test(
     command: &ApplicationCommandInteraction,
 ) -> Result<(), SerenityError> {
     {
-        let mut queue = QUEUE_MANAGER.lock().await;
+        let mut queue = QUEUE_MANAGER.write().await;
         //register 10 fake players
         info!("Registering 10 fake players");
         for i in 0..10 {
@@ -330,7 +330,7 @@ pub async fn remove(
     {
         let user = user.id;
         {
-            let mut queue = QUEUE_MANAGER.lock().await;
+            let mut queue = QUEUE_MANAGER.write().await;
             queue.leave_queue(user, "").unwrap();
         }
         display(ctx, command.guild_id.unwrap()).await;
@@ -348,7 +348,7 @@ pub async fn clear(
         .await
         .unwrap();
     {
-        let mut queue = QUEUE_MANAGER.lock().await;
+        let mut queue = QUEUE_MANAGER.write().await;
         queue.clear_queue().await;
     }
     display(ctx, command.guild_id.unwrap()).await;

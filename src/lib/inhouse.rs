@@ -16,20 +16,21 @@ use serenity::model::channel::ReactionType;
 
 use serenity::model::id::{ChannelId, GuildId, MessageId, UserId};
 use serenity::prelude::Context;
-use std::collections::{HashMap, HashSet, VecDeque};
+use rustc_hash::{FxHashMap, FxHashSet};
+use std::collections::VecDeque;
 use std::fmt::Write as _;
-use std::sync::Mutex;
+use std::sync::RwLock;
 use tokio::time::{sleep, Duration};
 use tracing::log::{error, info};
 
 use rayon::prelude::*;
 
 lazy_static! {
-    pub static ref TOP_EMOJI: Mutex<String> = Mutex::new(String::from(":frog: "));
-    pub static ref JG_EMOJI: Mutex<String> = Mutex::new(String::from(":dog: "));
-    pub static ref MID_EMOJI: Mutex<String> = Mutex::new(String::from(":cat: "));
-    pub static ref BOT_EMOJI: Mutex<String> = Mutex::new(String::from(":blue_car: "));
-    pub static ref SUP_EMOJI: Mutex<String> = Mutex::new(String::from(":police_car: "));
+    pub static ref TOP_EMOJI: RwLock<String> = RwLock::new(String::from(":frog: "));
+    pub static ref JG_EMOJI: RwLock<String> = RwLock::new(String::from(":dog: "));
+    pub static ref MID_EMOJI: RwLock<String> = RwLock::new(String::from(":cat: "));
+    pub static ref BOT_EMOJI: RwLock<String> = RwLock::new(String::from(":blue_car: "));
+    pub static ref SUP_EMOJI: RwLock<String> = RwLock::new(String::from(":police_car: "));
 }
 
 static RANKPOINTTABLE: [(&str, i8); 27] = [
@@ -68,10 +69,10 @@ pub struct QueueManager {
     mid: VecDeque<UserId>,
     bot: VecDeque<UserId>,
     support: VecDeque<UserId>,
-    players: HashMap<UserId, Player>, //key: discord id, value: Player
+    players: FxHashMap<UserId, Player>, //key: discord id, value: Player
     current_games: Vec<Game>,
     tentative_games: Vec<Game>,
-    missing_roles: HashSet<String>,
+    missing_roles: FxHashSet<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -301,11 +302,11 @@ impl Game {
                 let _ = write!(players, "<@{}>", player.0);
                 let name = get_name(&player.0, ctx, guild_id).await;
                 match i {
-                    0 => tmp.push_str(&TOP_EMOJI.lock().unwrap()),
-                    1 => tmp.push_str(&JG_EMOJI.lock().unwrap()),
-                    2 => tmp.push_str(&MID_EMOJI.lock().unwrap()),
-                    3 => tmp.push_str(&BOT_EMOJI.lock().unwrap()),
-                    4 => tmp.push_str(&SUP_EMOJI.lock().unwrap()),
+                    0 => tmp.push_str(&TOP_EMOJI.read().unwrap()),
+                    1 => tmp.push_str(&JG_EMOJI.read().unwrap()),
+                    2 => tmp.push_str(&MID_EMOJI.read().unwrap()),
+                    3 => tmp.push_str(&BOT_EMOJI.read().unwrap()),
+                    4 => tmp.push_str(&SUP_EMOJI.read().unwrap()),
                     _ => panic!("Too many players in a team"),
                 };
                 if !current_game {
@@ -342,10 +343,10 @@ impl QueueManager {
             mid: VecDeque::new(),
             bot: VecDeque::new(),
             support: VecDeque::new(),
-            players: HashMap::new(),
+            players: FxHashMap::default(),
             current_games: Vec::new(),
             tentative_games: Vec::new(),
-            missing_roles: HashSet::new(),
+            missing_roles: FxHashSet::default(),
         };
         let conn = DBCONNECTION.db_connection.get().unwrap();
         let result = get_players(&conn);
@@ -552,7 +553,7 @@ impl QueueManager {
     }
 
     pub async fn number_of_unique_players(&self) -> usize {
-        let mut unique_players = HashSet::new();
+        let mut unique_players = FxHashSet::default();
         for player in &self.top {
             unique_players.insert(player);
         }
@@ -824,14 +825,14 @@ impl QueueManager {
             Some(roles)
         }
     }
-    fn check_duplicates(&self) -> (bool, HashSet<&str>) {
+    fn check_duplicates(&self) -> (bool, FxHashSet<&str>) {
         /*
            top - sadroad, lelantos
            mid - sadroad, lelantos
            still missing two players from the top and mid roles
         */
-        let mut players = HashSet::new();
-        let mut duplicates = HashSet::new();
+        let mut players = FxHashSet::default();
+        let mut duplicates = FxHashSet::default();
         for player in self
             .top
             .iter()
@@ -845,7 +846,7 @@ impl QueueManager {
             }
         }
         //find roles of duplicates
-        let mut roles: HashSet<&str> = HashSet::new();
+        let mut roles: FxHashSet<&str> = FxHashSet::default();
         for player in duplicates.iter() {
             if let Some(player_roles) = self.get_roles(player) {
                 for role in player_roles {
@@ -920,7 +921,7 @@ impl QueueManager {
     pub async fn display(&self, ctx: &Context, guild_id: GuildId) -> String {
         let mut final_result = String::new();
         let mut output: Vec<String> = Vec::new();
-        write!(final_result, "{} ", &TOP_EMOJI.lock().unwrap()).unwrap();
+        write!(final_result, "{} ", &TOP_EMOJI.read().unwrap()).unwrap();
         for player in self.top.iter() {
             let name = get_name(player, ctx, guild_id).await;
             output.push(name);
@@ -929,7 +930,7 @@ impl QueueManager {
         final_result.push('\n');
         output.clear();
 
-        write!(final_result, "{} ", &JG_EMOJI.lock().unwrap()).unwrap();
+        write!(final_result, "{} ", &JG_EMOJI.read().unwrap()).unwrap();
         for player in self.jungle.iter() {
             let name = get_name(player, ctx, guild_id).await;
             output.push(name);
@@ -938,7 +939,7 @@ impl QueueManager {
         final_result.push('\n');
         output.clear();
 
-        write!(final_result, "{} ", &MID_EMOJI.lock().unwrap()).unwrap();
+        write!(final_result, "{} ", &MID_EMOJI.read().unwrap()).unwrap();
         for player in self.mid.iter() {
             let name = get_name(player, ctx, guild_id).await;
             output.push(name);
@@ -947,7 +948,7 @@ impl QueueManager {
         final_result.push('\n');
         output.clear();
 
-        write!(final_result, "{} ", &BOT_EMOJI.lock().unwrap()).unwrap();
+        write!(final_result, "{} ", &BOT_EMOJI.read().unwrap()).unwrap();
         for player in self.bot.iter() {
             let name = get_name(player, ctx, guild_id).await;
             output.push(name);
@@ -956,7 +957,7 @@ impl QueueManager {
         final_result.push('\n');
         output.clear();
 
-        write!(final_result, "{} ", &SUP_EMOJI.lock().unwrap()).unwrap();
+        write!(final_result, "{} ", &SUP_EMOJI.read().unwrap()).unwrap();
         for player in self.support.iter() {
             let name = get_name(player, ctx, guild_id).await;
             output.push(name);
