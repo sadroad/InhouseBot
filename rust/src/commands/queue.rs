@@ -1,7 +1,9 @@
-use crate::{QueueChannel, QueueEmbed, Riot, QUEUE_MANAGER};
+use crate::{QueueChannel, QueueEmbed, Riot, GAME_MANAGER, QUEUE_MANAGER};
 
+use serenity::builder::{CreateActionRow, CreateButton};
 use serenity::collector::EventCollectorBuilder;
 use serenity::futures::StreamExt;
+use serenity::model::application::component::ButtonStyle;
 use serenity::model::application::interaction::application_command::ApplicationCommandInteraction;
 use serenity::model::application::interaction::InteractionResponseType;
 use serenity::model::id::MessageId;
@@ -21,6 +23,7 @@ pub async fn queue(
     command: &ApplicationCommandInteraction,
 ) -> Result<(), SerenityError> {
     let mut result = Ok(());
+    let mut game_ready = false;
     let player = command.user.id;
     command.defer(&ctx.http).await?;
     let tmp = CommandDataOptionValue::String(String::from(""));
@@ -31,7 +34,9 @@ pub async fn queue(
         let mut queue = QUEUE_MANAGER.write().await;
         dbg!("after lock");
         dbg!("queing player");
-        result = queue.queue_player(player, role, false).await;
+        let game_manager = &GAME_MANAGER.read().await;
+        result = queue.queue_player(player, role, false, game_manager).await;
+        game_ready = queue.check_for_game().await;
     } else {
         error!("No role specified, somehow past discord");
     }
@@ -50,8 +55,10 @@ pub async fn queue(
             .unwrap();
         return Ok(());
     }
+    dbg!("getting guild id ");
     let guild_id = command.guild_id.unwrap();
     //only used to get variables for discord api
+    dbg!("spawning thread");
     let tmp_ctx = ctx.clone();
     task::spawn(async move {
         //2 hours in seconds
@@ -94,16 +101,9 @@ pub async fn queue(
         .delete_original_interaction_response(&ctx.http)
         .await
         .unwrap();
-
-    let result;
-    {
-        let mut queue = QUEUE_MANAGER.write().await;
-        result = queue.check_for_game().await;
-    }
-    dbg!("getting guild id ");
     dbg!("running display");
     display(ctx, guild_id).await;
-    if result {
+    if game_ready {
         dbg!("running show_games");
         show_games(ctx, guild_id).await;
     }
@@ -143,8 +143,8 @@ pub async fn won(
     let user = command.user.id;
     let game;
     {
-        let queue = QUEUE_MANAGER.read().await;
-        game = queue.get_side(user).await;
+        let game_manager = GAME_MANAGER.read().await;
+        game = game_manager.get_side(user).await;
     }
     match game {
         Ok(game) => {
@@ -180,62 +180,6 @@ pub async fn won(
                         if reaction.reaction.emoji == ReactionType::Unicode(String::from("✅")) {
                             votes += 1;
                             if votes >= 6 {
-                                react_message.delete(&ctx.http).await?;
-                                let response = channel_id
-                                        .say(
-                                            &ctx.http,
-                                            "Vote to confirm the game's outcome has passed. The game will be scored.".to_string(),
-                                        )
-                                        .await?;
-                                sleep(Duration::from_secs(3)).await;
-                                response.delete(&ctx.http).await?;
-                                let mentions;
-                                {
-                                    let queue = QUEUE_MANAGER.read().await;
-                                    mentions = queue.players_to_requeue(game.0).await;
-                                }
-                                let no_requeue = channel_id.say(&ctx.http, &format!("{}\n I will requeue you in 5 seconds. If you **dont** want to be queued, react with a ❌", mentions)).await?;
-                                no_requeue.react(&ctx.http, '❌').await?;
-                                let mut collector = EventCollectorBuilder::new(&ctx)
-                                    .add_event_type(EventType::ReactionAdd)
-                                    .add_event_type(EventType::ReactionRemove)
-                                    .add_message_id(no_requeue.id)
-                                    .timeout(Duration::from_secs(10))
-                                    .build()
-                                    .unwrap();
-                                let mut dont_queue = Vec::new();
-                                while let Some(event) = collector.next().await {
-                                    match event.as_ref() {
-                                        Event::ReactionAdd(reaction) => {
-                                            if reaction.reaction.emoji
-                                                == ReactionType::Unicode(String::from("❌"))
-                                            {
-                                                dont_queue.push(reaction.reaction.user_id.unwrap());
-                                            }
-                                        }
-                                        Event::ReactionRemove(reaction) => {
-                                            if reaction.reaction.emoji
-                                                == ReactionType::Unicode(String::from("❌"))
-                                            {
-                                                dont_queue.swap_remove(
-                                                    dont_queue
-                                                        .par_iter()
-                                                        .position_any(|&x| {
-                                                            x == reaction.reaction.user_id.unwrap()
-                                                        })
-                                                        .unwrap(),
-                                                );
-                                            }
-                                        }
-                                        _ => {}
-                                    }
-                                }
-                                no_requeue.delete(&ctx.http).await?;
-                                {
-                                    let mut queue = QUEUE_MANAGER.write().await;
-                                    queue.win(game, ctx, channel_id, dont_queue).await;
-                                }
-                                display(ctx, guild_id).await;
                                 break;
                             }
                         }
@@ -248,7 +192,61 @@ pub async fn won(
                     _ => {}
                 }
             }
-            if votes < 6 {
+            if votes >= 6 {
+                react_message.delete(&ctx.http).await?;
+                let response = channel_id
+                    .say(
+                        &ctx.http,
+                        "Vote to confirm the game's outcome has passed. The game will be scored."
+                            .to_string(),
+                    )
+                    .await?;
+                sleep(Duration::from_secs(3)).await;
+                response.delete(&ctx.http).await?;
+                let mentions;
+                {
+                    let queue = GAME_MANAGER.read().await;
+                    mentions = queue.players_to_requeue(game.0).await;
+                }
+                let no_requeue = channel_id.say(&ctx.http, &format!("{}\n I will requeue you in 5 seconds. If you **dont** want to be queued, react with a ❌", mentions)).await?;
+                no_requeue.react(&ctx.http, '❌').await?;
+                let mut collector = EventCollectorBuilder::new(&ctx)
+                    .add_event_type(EventType::ReactionAdd)
+                    .add_event_type(EventType::ReactionRemove)
+                    .add_message_id(no_requeue.id)
+                    .timeout(Duration::from_secs(10))
+                    .build()
+                    .unwrap();
+                let mut dont_queue = Vec::new();
+                while let Some(event) = collector.next().await {
+                    match event.as_ref() {
+                        Event::ReactionAdd(reaction) => {
+                            if reaction.reaction.emoji == ReactionType::Unicode(String::from("❌"))
+                            {
+                                dont_queue.push(reaction.reaction.user_id.unwrap());
+                            }
+                        }
+                        Event::ReactionRemove(reaction) => {
+                            if reaction.reaction.emoji == ReactionType::Unicode(String::from("❌"))
+                            {
+                                dont_queue.swap_remove(
+                                    dont_queue
+                                        .par_iter()
+                                        .position_any(|&x| x == reaction.reaction.user_id.unwrap())
+                                        .unwrap(),
+                                );
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                no_requeue.delete(&ctx.http).await?;
+                {
+                    let mut game_manager = GAME_MANAGER.write().await;
+                    game_manager.win(game, ctx, channel_id, dont_queue).await;
+                }
+                display(ctx, guild_id).await;
+            } else {
                 react_message.delete(&ctx.http).await?;
                 let response = channel_id
                         .say(
@@ -284,9 +282,9 @@ pub async fn cancel(
     let result;
     {
         let data = ctx.data.read().await;
-        let mut queue = QUEUE_MANAGER.write().await;
+        let mut game_manager = GAME_MANAGER.write().await;
         let queue_channel = *data.get::<QueueChannel>().unwrap().lock().await;
-        result = queue.cancel_game(user, ctx, queue_channel).await;
+        result = game_manager.cancel_game(user, ctx, queue_channel).await;
     }
     if result {
         command
@@ -369,21 +367,6 @@ pub async fn vote_clear(
                 if reaction.reaction.emoji == ReactionType::Unicode(String::from("✅")) {
                     votes += 1;
                     if votes >= 6 {
-                        let response = channel_id
-                            .say(
-                                &ctx.http,
-                                "Vote to clear the queue has passed. The queue will be cleared."
-                                    .to_string(),
-                            )
-                            .await?;
-                        sleep(Duration::from_secs(3)).await;
-                        response.delete(&ctx.http).await?;
-                        let guild_id = command.guild_id.unwrap();
-                        {
-                            let mut queue = QUEUE_MANAGER.write().await;
-                            queue.clear_queue().await;
-                        }
-                        display(ctx, guild_id).await;
                         break;
                     }
                 }
@@ -396,7 +379,22 @@ pub async fn vote_clear(
             _ => {}
         }
     }
-    if votes < 6 {
+    if votes >= 6 {
+        let response = channel_id
+            .say(
+                &ctx.http,
+                "Vote to clear the queue has passed. The queue will be cleared.".to_string(),
+            )
+            .await?;
+        sleep(Duration::from_secs(3)).await;
+        response.delete(&ctx.http).await?;
+        let guild_id = command.guild_id.unwrap();
+        {
+            let mut queue = QUEUE_MANAGER.write().await;
+            queue.clear_queue().await;
+        }
+        display(ctx, guild_id).await;
+    } else {
         let response = channel_id
             .say(
                 &ctx.http,
@@ -473,23 +471,6 @@ pub async fn vote_remove(
                         if reaction.reaction.emoji == ReactionType::Unicode(String::from("✅")) {
                             votes += 1;
                             if votes >= 6 {
-                                let response = channel_id
-                                .say(
-                                    &ctx.http,
-                                    format!(
-                                        "Vote to remove has passed. {} will be removed from the queue.",
-                                        user.mention()
-                                    ),
-                                )
-                                .await?;
-                                sleep(Duration::from_secs(3)).await;
-                                response.delete(&ctx.http).await?;
-                                let guild_id = command.guild_id.unwrap();
-                                {
-                                    let mut queue = QUEUE_MANAGER.write().await;
-                                    queue.leave_queue(user.id, "").unwrap();
-                                }
-                                display(ctx, guild_id).await;
                                 break;
                             }
                         }
@@ -502,7 +483,25 @@ pub async fn vote_remove(
                     _ => {}
                 }
             }
-            if votes < 6 {
+            if votes >= 6 {
+                let response = channel_id
+                    .say(
+                        &ctx.http,
+                        format!(
+                            "Vote to remove has passed. {} will be removed from the queue.",
+                            user.mention()
+                        ),
+                    )
+                    .await?;
+                sleep(Duration::from_secs(3)).await;
+                response.delete(&ctx.http).await?;
+                let guild_id = command.guild_id.unwrap();
+                {
+                    let mut queue = QUEUE_MANAGER.write().await;
+                    queue.leave_queue(user.id, "").unwrap();
+                }
+                display(ctx, guild_id).await;
+            } else {
                 let response = channel_id
                     .say(
                         &ctx.http,
@@ -580,8 +579,8 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
     let queue_channel;
     {
         let data = ctx.data.read().await;
-        let queue = QUEUE_MANAGER.read().await;
-        tentative_games = queue.get_tentative_games(ctx, guild_id).await;
+        let game_manager = GAME_MANAGER.read().await;
+        tentative_games = game_manager.get_tentative_games(ctx, guild_id).await;
         queue_channel = *data.get::<QueueChannel>().unwrap().lock().await;
     }
     for game in tentative_games.iter() {
@@ -598,95 +597,81 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
                             .field("BLUE", &body.0, true)
                             .field("RED", &body.1, true)
                         })
+                        .components(|c| {
+                            let mut ar = CreateActionRow::default();
+                            let mut b = CreateButton::default();
+                            b.custom_id("check");
+                            b.label("Confirm");
+                            b.style(ButtonStyle::Success);
+                            let mut a = CreateButton::default();
+                            a.custom_id("reject");
+                            a.label("Cancel");
+                            a.style(ButtonStyle::Danger);
+                            ar.add_button(b);
+                            ar.add_button(a);
+                            c.add_action_row(ar);
+                            c
+                        })
                 }).await.unwrap();
             let message_id = response.id;
             {
-                let mut queue = QUEUE_MANAGER.write().await;
-                queue.set_message_id(game.0, message_id).await;
+                let mut game_manager = GAME_MANAGER.write().await;
+                game_manager.set_message_id(game.0, message_id).await;
             }
-            response.react(&ctx.http, '✅').await.unwrap();
-            response.react(&ctx.http, '❌').await.unwrap();
-            let mut collector = EventCollectorBuilder::new(&ctx)
-                .add_event_type(EventType::ReactionAdd)
-                .add_event_type(EventType::ReactionRemove)
-                .add_message_id(message_id)
+            let mut collector = response
+                .await_component_interactions(&ctx)
+                .message_id(message_id)
                 .timeout(Duration::from_secs(180))
-                .build()
-                .unwrap();
+                .build();
             let mut game_ready = false;
             'collector: while let Some(event) = collector.next().await {
-                match event.as_ref() {
-                    Event::ReactionAdd(e) => {
-                        let reaction = &e.reaction;
-                        dbg!("{:?}", &reaction.emoji);
-                        let result;
+                let user = event.user.id;
+                let result = match event.data.custom_id.as_str() {
+                    "check" => {
+                        let mut game_manager = GAME_MANAGER.write().await;
+                        game_manager.update_status(user, '✅', game.0).await
+                    }
+                    "reject" => {
+                        let mut game_manager = GAME_MANAGER.write().await;
+                        game_manager.update_status(user, '❌', game.0).await
+                    }
+                    _ => {
+                        panic!("Unexpected event: {:?}", event.data.custom_id);
+                    }
+                };
+                match result {
+                    Ok(_) => {
+                        let body;
                         {
-                            let mut queue = QUEUE_MANAGER.write().await;
-                            result = queue
-                                .update_status(reaction.user_id.unwrap(), &reaction.emoji, game.0)
-                                .await;
+                            let game_manager = GAME_MANAGER.read().await;
+                            body = game_manager.get_emebed_body(ctx, guild_id, game.0).await;
                         }
-                        dbg!(&result);
-                        match result {
-                            Ok(_) => {
-                                let body;
-                                {
-                                    let queue = QUEUE_MANAGER.read().await;
-                                    body = queue.get_emebed_body(ctx, guild_id, game.0).await;
-                                }
-                                queue_channel
-                                    .edit_message(&ctx.http, message_id, |m| {
-                                        m.embed(|e| {
+                        event.create_interaction_response(&ctx.http, |response| {
+                                    response.kind(InteractionResponseType::UpdateMessage).interaction_response_data(|data| {
+                                        data.embed(|e| {
                                             e.title("📢 Game found 📢")
                                             .description(&format!("Blue side expected winrate is {}\nIf you are ready to play, press ✅\nIf you cannot play, press ❌\nThe queue will timeout after a few minutes and AFK players will be automatically dropped from queue", game.3))
                                             .field("BLUE", body.0, true)
                                             .field("RED", body.1, true)
                                         })
                                     })
-                                    .await
-                                    .unwrap();
-                                dbg!("done");
-                            }
-                            Err(_) => {
-                                break 'collector;
-                            }
-                        }
+                                }).await.unwrap();
+                        dbg!("done");
                     }
-                    Event::ReactionRemove(e) => {
-                        let reaction = &e.reaction;
-                        let result;
-                        {
-                            let mut queue = QUEUE_MANAGER.write().await;
-                            result = queue
-                                .unready(reaction.user_id.unwrap(), &reaction.emoji, game.0)
-                                .await;
-                        }
-                        if result {
-                            let body;
-                            {
-                                let queue = QUEUE_MANAGER.read().await;
-                                body = queue.get_emebed_body(ctx, guild_id, game.0).await;
-                            }
-                            queue_channel
-                                .edit_message(&ctx.http, message_id, |m| {
-                                    m.embed(|e| {
-                                        e.title("📢 Game found 📢")
-                                        .description(&format!("Blue side expected winrate is {}\nIf you are ready to play, press ✅\nIf you cannot play, press ❌\nThe queue will timeout after a few minutes and AFK players will be automatically dropped from queue", game.3))
-                                        .field("BLUE", body.0, true)
-                                        .field("RED", body.1, true)
-                                    })
-                                })
-                                .await
-                                .unwrap();
-                            dbg!("done");
-                        }
+                    Err(_) => {
+                        event
+                            .create_interaction_response(&ctx.http, |response| {
+                                response.kind(InteractionResponseType::DeferredUpdateMessage)
+                            })
+                            .await
+                            .unwrap();
+                        break 'collector;
                     }
-                    e => panic!("Unexpected event: {:?}", e),
                 }
                 dbg!("checking if game is ready");
                 {
-                    let queue = QUEUE_MANAGER.read().await;
-                    game_ready = queue.is_game_ready(game.0).await;
+                    let game_manager = GAME_MANAGER.read().await;
+                    game_ready = game_manager.is_game_ready(game.0).await;
                 }
                 if game_ready {
                     break;
@@ -696,21 +681,55 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
                 dbg!("starting game");
                 {
                     let data = ctx.data.read().await;
-                    let mut queue = QUEUE_MANAGER.write().await;
+                    let mut game_manager = GAME_MANAGER.write().await;
                     let riot = data.get::<Riot>().unwrap();
-                    queue
+                    game_manager
                         .start_game(&game.0, ctx, queue_channel, message_id, guild_id, riot)
                         .await;
                 }
             } else {
                 dbg!("adding players back to queue");
                 let result;
+                let team;
                 {
-                    let mut queue = QUEUE_MANAGER.write().await;
-                    queue
+                    dbg!("awaiting lock here");
+                    let mut game_manager = GAME_MANAGER.write().await;
+                    dbg!("got the next lock :)");
+                    team = game_manager
                         .remove_game(&game.0, ctx, queue_channel, message_id)
                         .await;
-                    result = queue.check_for_game().await;
+                }
+                {
+                    let mut queue_manager = QUEUE_MANAGER.write().await;
+                    if let Some(team) = team {
+                        dbg!("got lock on queue");
+                        let game_manager = &GAME_MANAGER.read().await;
+                        for player in team.iter() {
+                            dbg!("beginning to queue a player");
+                            match player.1 {
+                                0 => {
+                                    queue_manager.queue_player(player.0, "top", true, game_manager)
+                                }
+                                1 => {
+                                    queue_manager.queue_player(player.0, "jng", true, game_manager)
+                                }
+                                2 => {
+                                    queue_manager.queue_player(player.0, "mid", true, game_manager)
+                                }
+                                3 => {
+                                    queue_manager.queue_player(player.0, "bot", true, game_manager)
+                                }
+                                4 => {
+                                    queue_manager.queue_player(player.0, "sup", true, game_manager)
+                                }
+                                _ => panic!("Invalid role"),
+                            }
+                            .await
+                            .expect("Failed to queue player");
+                            dbg!("queued a player");
+                        }
+                    }
+                    result = queue_manager.check_for_game().await;
                 }
                 display(ctx, guild_id).await;
                 if result {

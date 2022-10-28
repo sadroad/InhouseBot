@@ -1,6 +1,3 @@
-/target
-/debug
-
 Cargo.lock
 .env
 
@@ -12,3 +9,9 @@ Cargo.lock
 .env.local
 .env.remote
 flamegraph.svg
+.idea/InhouseBot.iml
+.idea/modules.xml
+.idea/vcs.xml
+.idea
+
+rust/target

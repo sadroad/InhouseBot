@@ -1,10 +1,5 @@
 //TODO enable proper caching for the entire bot, look at serenity's cache options
 //TODO look into the sharding feature of serenity, it's a good idea to have a shard for each guild but it seems to be lagging the bot by disconnecting from the guild
-#[macro_use]
-extern crate diesel;
-#[macro_use]
-extern crate diesel_migrations;
-
 mod commands;
 mod lib;
 
@@ -41,9 +36,12 @@ lazy_static! {
         }
     };
     pub static ref LOADING_EMOJI: String =
-        env::var("LOADING_EMOJI").unwrap_or_else(|_| "🔍".to_string());
+    //     env::var("LOADING_EMOJI").unwrap_or_else(|_| "🔍".to_string());
+    String::from("<a:loading:992255705073602590>");
     pub static ref QUEUE_MANAGER: Arc<RwLock<QueueManager>> =
         Arc::new(RwLock::new(QueueManager::new()));
+    pub static ref GAME_MANAGER: Arc<RwLock<GameManager>> =
+        Arc::new(RwLock::new(GameManager::new()));
 }
 
 pub struct ShardManagerContainer;
@@ -74,6 +72,21 @@ struct Handler;
 
 #[async_trait]
 impl EventHandler for Handler {
+    async fn message(&self, ctx: Context, msg: Message) {
+        info!(
+            "Received a message from {}: {}",
+            msg.author.name, msg.content
+        );
+        let channel_id;
+        {
+            let data = ctx.data.read().await;
+            channel_id = *data.get::<QueueChannel>().unwrap().lock().await;
+        }
+        if msg.channel_id == channel_id && !msg.author.bot {
+            msg.delete(&ctx.http).await.unwrap();
+        }
+    }
+
     async fn ready(&self, ctx: Context, ready: Ready) {
         info!("Connected as {}", ready.user.name);
         if !ready.guilds.is_empty() {
@@ -290,21 +303,6 @@ impl EventHandler for Handler {
             }
         }
     }
-
-    async fn message(&self, ctx: Context, msg: Message) {
-        info!(
-            "Received a message from {}: {}",
-            msg.author.name, msg.content
-        );
-        let channel_id;
-        {
-            let data = ctx.data.read().await;
-            channel_id = *data.get::<QueueChannel>().unwrap().lock().await;
-        }
-        if msg.channel_id == channel_id && !msg.author.bot {
-            msg.delete(&ctx.http).await.unwrap();
-        }
-    }
 }
 
 //Ignore the following error, rust-analyzer is causing a false positive
@@ -312,7 +310,8 @@ impl EventHandler for Handler {
 async fn main() {
     tracing_subscriber::fmt::init();
     let token =
-        env::var("DISCORD_TOKEN").expect("Expected to find a discord token in the environment");
+        // env::var("DISCORD_TOKEN").expect("Expected to find a discord token in the environment");
+        String::from("OTkyMjM1MDg0NzcyMDE2MjA4.GahxTv.FhA_l3bCyh-2Jv-MEg1CIKUW8fnT3whtdcUgO4");
 
     let riot_key = env::var("RGAPI_KEY").expect("Expect to find a riot api key in the environment");
 
@@ -329,7 +328,7 @@ async fn main() {
         .expect("Error creating client");
 
     let queue_channel = init_server_info(
-        &DBCONNECTION.db_connection.get().unwrap(),
+        &mut DBCONNECTION.db_connection.get().unwrap(),
         &client.cache_and_http.http,
     )
     .await;

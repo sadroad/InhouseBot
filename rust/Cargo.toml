@@ -1,0 +1,25 @@
+[package]
+name = "bot"
+version = "1.0.4"
+edition = "2021"
+include = ["src/**/*", "README.md"]
+
+[dependencies]
+tracing = { default-features = false, version = "0.1" }
+tracing-subscriber = { features = ["fmt"], default-features = false, version = "0.3" }
+lazy_static = "1.4"
+scraper = { default-features = false, version = "0.13" }
+reqwest = { default-features = false, version = "0.11" }
+probability = "0.18"
+serde_json = { default-features = false, version = "1.0" }
+rand = { default-features = false, version = "0.8" }
+diesel = { version = "2.0", features = ["r2d2", "postgres"], default-features = false }
+diesel_migrations = "2.0"
+itertools = "0.10"
+ordered-float = { default-features = false, version = "3.0" }
+async-recursion = "1"
+rayon = "1.5"
+rustc-hash = "1.1"
+tokio = { version = "1", features= ["rt-multi-thread", "signal"], default-features = false }
+serenity = { version = "0.11", features= ["collector", "default_no_backend", "rustls_backend"], default-features = false }
+riven = {version = "2.8", default-features= false }

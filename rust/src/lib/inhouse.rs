@@ -1,8 +1,8 @@
 use crate::lib::database::{
     get_players, next_game_id, remove_player, save_player, update_game, update_rating,
 };
-use crate::lib::openskill::lib::{predicte_win, rate, Rating, DEFAULT_SIGMA};
-use crate::{DBCONNECTION, LOADING_EMOJI};
+use crate::lib::openskill::lib::{predict_win, rate, Rating, DEFAULT_SIGMA};
+use crate::{DBCONNECTION, LOADING_EMOJI, QUEUE_MANAGER};
 use itertools::{iproduct, Itertools};
 use lazy_static::lazy_static;
 use ordered_float::OrderedFloat;
@@ -12,18 +12,23 @@ use riven::consts::{Division, QueueType, Tier};
 use riven::RiotApi;
 use scraper::{Html, Selector};
 use serde_json::Value;
+
 use serenity::model::channel::ReactionType;
 
 use rustc_hash::{FxHashMap, FxHashSet};
+
 use serenity::model::id::{ChannelId, GuildId, MessageId, UserId};
 use serenity::prelude::Context;
 use std::collections::VecDeque;
 use std::fmt::Write as _;
 use std::sync::RwLock;
+use tokio::sync::RwLockReadGuard;
 use tokio::time::{sleep, Duration};
 use tracing::log::{error, info};
 
 use rayon::prelude::*;
+
+use crate::GAME_MANAGER;
 
 lazy_static! {
     pub static ref TOP_EMOJI: RwLock<String> = RwLock::new(String::from(":frog: "));
@@ -33,6 +38,7 @@ lazy_static! {
     pub static ref SUP_EMOJI: RwLock<String> = RwLock::new(String::from(":police_car: "));
 }
 
+//noinspection SpellCheckingInspection
 static RANKPOINTTABLE: [(&str, i8); 27] = [
     ("CHALLENGER 1", 45),
     ("GRANDMASTER 1", 42),
@@ -70,9 +76,377 @@ pub struct QueueManager {
     bot: VecDeque<UserId>,
     support: VecDeque<UserId>,
     players: FxHashMap<UserId, Player>, //key: discord id, value: Player
+    missing_roles: FxHashSet<String>,
+}
+
+pub struct GameManager {
     current_games: Vec<Game>,
     tentative_games: Vec<Game>,
-    missing_roles: FxHashSet<String>,
+}
+
+impl Default for GameManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GameManager {
+    pub fn new() -> GameManager {
+        GameManager {
+            current_games: Vec::new(),
+            tentative_games: Vec::new(),
+        }
+    }
+    fn check_player_in_game(&self, discord_id: UserId) -> Result<(), &str> {
+        if self
+            .current_games
+            .par_iter()
+            .any(|game| game.player_in_game(&discord_id))
+        {
+            return Err(
+                "Player is currently in a game. Either score the game or wait for it to end",
+            );
+        }
+        if self
+            .tentative_games
+            .par_iter()
+            .any(|game| game.player_in_game(&discord_id))
+        {
+            return Err("My guy. ur queued for a game like cancel it or what???????🦧");
+        }
+        Ok(())
+    }
+    pub async fn is_game_ready(&self, game_id: i32) -> bool {
+        let game = self
+            .tentative_games
+            .par_iter()
+            .find_any(|game| game.id == game_id);
+        if game.is_none() {
+            return false;
+        }
+        let game = game.unwrap();
+        game.is_ready().await
+    }
+    pub async fn cancel_game(&mut self, user: UserId, ctx: &Context, queue_id: ChannelId) -> bool {
+        //find game with user in it
+        let game_position = self
+            .current_games
+            .par_iter()
+            .position_any(|game| game.player_in_game(&user));
+        if game_position.is_none() {
+            return false;
+        }
+        let game_position = game_position.unwrap();
+        let mut game = self.current_games.swap_remove(game_position);
+        game.update_status(user, '❌').await.unwrap_err();
+        let mut team = game.team(0);
+        team.extend(game.team(1).iter());
+        if game.canceled {
+            team.retain(|x| x.2 != 2);
+        } else {
+            team.retain(|x| x.2 != 1);
+        }
+        let game_manager = &GAME_MANAGER.read().await;
+        for player in team.iter() {
+            if let Err(e) = match player.1 {
+                0 => {
+                    QUEUE_MANAGER
+                        .write()
+                        .await
+                        .queue_player(player.0, "top", true, game_manager)
+                        .await
+                }
+                1 => {
+                    QUEUE_MANAGER
+                        .write()
+                        .await
+                        .queue_player(player.0, "jng", true, game_manager)
+                        .await
+                }
+                2 => {
+                    QUEUE_MANAGER
+                        .write()
+                        .await
+                        .queue_player(player.0, "mid", true, game_manager)
+                        .await
+                }
+                3 => {
+                    QUEUE_MANAGER
+                        .write()
+                        .await
+                        .queue_player(player.0, "bot", true, game_manager)
+                        .await
+                }
+                4 => {
+                    QUEUE_MANAGER
+                        .write()
+                        .await
+                        .queue_player(player.0, "sup", true, game_manager)
+                        .await
+                }
+                _ => panic!("Invalid role"),
+            } {
+                error!("{}", e);
+            }
+        }
+        let _ = ctx
+            .http
+            .delete_message(u64::from(queue_id), u64::from(game.message_id))
+            .await;
+        true
+    }
+    pub async fn get_side(&self, player: UserId) -> Result<(i32, String), String> {
+        for game in self.current_games.iter() {
+            if game.player_in_game(&player) {
+                return Ok(game.get_side(player));
+            }
+        }
+        Err("Player not in game".to_string())
+    }
+    pub async fn get_tentative_games(
+        &self,
+        ctx: &Context,
+        guild_id: GuildId,
+    ) -> Vec<(i32, MessageId, (String, String, String), OrderedFloat<f64>)> {
+        let mut result = Vec::new();
+        for game in self.tentative_games.iter() {
+            let body = game.display(ctx, guild_id, false).await;
+            result.push((game.id, game.message_id, body, game.expected_winrate));
+        }
+        result
+    }
+    pub async fn players_to_requeue(&self, game_id: i32) -> String {
+        let game = self.current_games.par_iter().find_any(|x| x.id == game_id);
+        if game.is_none() {
+            return String::from("Game not found");
+        }
+        let game = game.unwrap();
+        let blue = game.team(0);
+        let red = game.team(1);
+        let teams = blue.iter().chain(red.iter());
+        let mut output = String::new();
+        for player in teams {
+            let _ = write!(output, "<@{}>", player.0);
+        }
+        output
+    }
+    pub async fn win(
+        &mut self,
+        game: (i32, String),
+        ctx: &Context,
+        queue_id: ChannelId,
+        dont_queue: Vec<UserId>,
+    ) {
+        let game_final = self.current_games.swap_remove(
+            self.current_games
+                .par_iter()
+                .position_any(|x| x.id == game.0)
+                .unwrap(),
+        );
+        let blue = game_final.team(0);
+        let red = game_final.team(1);
+        let queue_manager = QUEUE_MANAGER.read().await;
+        let blue_ratings: Vec<Rating> = blue
+            .par_iter()
+            .map(|x| queue_manager.players.get(&x.0).unwrap().rating)
+            .collect();
+        let red_ratings: Vec<Rating> = red
+            .par_iter()
+            .map(|x| queue_manager.players.get(&x.0).unwrap().rating)
+            .collect();
+        let new_ratings = if game.1 == "Blue" {
+            rate(&[blue_ratings, red_ratings])
+        } else {
+            rate(&[red_ratings, blue_ratings])
+        };
+        for team in new_ratings {
+            for player in team {
+                let user_id = player.user_id;
+                let rating = player;
+                QUEUE_MANAGER
+                    .write()
+                    .await
+                    .players
+                    .get_mut(&user_id)
+                    .unwrap()
+                    .rating = player;
+                let mut conn = DBCONNECTION.db_connection.get().unwrap();
+                update_rating(&mut conn, &user_id, &rating);
+            }
+        }
+        let mut conn = DBCONNECTION.db_connection.get().unwrap();
+        update_game(&mut conn, &game_final, game.1 == "Blue");
+        let game_manager = &GAME_MANAGER.read().await;
+        for team in vec![blue, red] {
+            for player in team {
+                let user_id = player.0;
+                if !dont_queue.contains(&user_id) {
+                    let mut role = "";
+                    match player.1 {
+                        0 => {
+                            role = "top";
+                        }
+                        1 => {
+                            role = "jng";
+                        }
+                        2 => {
+                            role = "mid";
+                        }
+                        3 => {
+                            role = "bot";
+                        }
+                        4 => {
+                            role = "sup";
+                        }
+                        _ => {}
+                    }
+                    if let Err(e) = QUEUE_MANAGER
+                        .write()
+                        .await
+                        .queue_player(user_id, role, false, game_manager)
+                        .await
+                    {
+                        let response = queue_id
+                            .say(&ctx.http, format!("{}\nError: {}", user_id, e))
+                            .await
+                            .unwrap();
+                        sleep(Duration::from_secs(3)).await;
+                        response.delete(&ctx.http).await.unwrap();
+                    }
+                }
+            }
+        }
+        let _ = ctx
+            .http
+            .delete_message(u64::from(queue_id), u64::from(game_final.message_id))
+            .await;
+    }
+    pub async fn get_emebed_body(
+        &self,
+        ctx: &Context,
+        guild_id: GuildId,
+        game_id: i32,
+    ) -> (String, String, String) {
+        let game = self
+            .tentative_games
+            .par_iter()
+            .find_any(|x| x.id == game_id);
+        if game.is_none() {
+            return ("".to_string(), "".to_string(), "".to_string());
+        }
+        let game = game.unwrap();
+
+        game.display(ctx, guild_id, false).await
+    }
+    pub async fn update_status(
+        &mut self,
+        user_reactor: UserId,
+        emoji: char,
+        game_id: i32,
+    ) -> Result<(), ()> {
+        let game = self
+            .tentative_games
+            .par_iter_mut()
+            .find_any(|x| x.id == game_id);
+        if game.is_none() {
+            return Ok(());
+        }
+        let game = game.unwrap();
+        game.update_status(user_reactor, emoji).await
+    }
+
+    pub async fn unready(
+        &mut self,
+        user_reactor: UserId,
+        emoji: &ReactionType,
+        game_id: i32,
+    ) -> bool {
+        let game = self
+            .tentative_games
+            .par_iter_mut()
+            .find_any(|x| x.id == game_id);
+        if game.is_none() {
+            return false;
+        }
+        let game = game.unwrap();
+        game.unready(user_reactor, emoji).await
+    }
+    pub async fn set_message_id(&mut self, id: i32, message_id: MessageId) {
+        self.tentative_games.par_iter_mut().for_each(|game| {
+            if game.id == id {
+                game.message_id = message_id;
+            }
+        });
+    }
+    pub async fn start_game(
+        &mut self,
+        game_id: &i32,
+        ctx: &Context,
+        queue_id: ChannelId,
+        message_id: MessageId,
+        guild_id: GuildId,
+        riot: &str,
+    ) {
+        let index = self
+            .tentative_games
+            .par_iter()
+            .position_any(|x| x.id == *game_id);
+        if index.is_none() {
+            return;
+        }
+        let index = index.unwrap();
+        let game = self.tentative_games.swap_remove(index);
+        let body = game.display(ctx, guild_id, true).await;
+        let opgg_links = QUEUE_MANAGER.read().await.get_opgg_links(&game, riot).await;
+        queue_id
+            .delete_message(&ctx.http, message_id)
+            .await
+            .unwrap();
+        let message = queue_id
+            .send_message(&ctx.http, |m| {
+                m.content(opgg_links)
+                .embed(|e| {
+                    e.title("📢 Game accepted 📢")
+                        .description(&format!("Game {} has been validated and added to the database\nOnce the game has been played, one of the winners can score it with `/won`\nIf you wish to cancel the game, use `/cancel`", game.id + 1))
+                        .field("BLUE", body.0, true)
+                        .field("RED", body.1, true)
+                })
+            }).await.unwrap();
+        self.set_message_id(game.id, message.id).await;
+        self.current_games.push(game);
+    }
+    pub async fn remove_game(
+        &mut self,
+        game_id: &i32,
+        ctx: &Context,
+        queue_id: ChannelId,
+        message_id: MessageId,
+    ) -> Option<Vec<(UserId, i8, i8)>> {
+        let game = self
+            .tentative_games
+            .par_iter()
+            .find_any(|game| game.id == *game_id);
+        dbg!("game found");
+        match game {
+            Some(game) => {
+                let mut team = game.team(0);
+                team.extend(game.team(1).iter());
+                if game.canceled {
+                    team.retain(|x| x.2 != 2);
+                } else {
+                    team.retain(|x| x.2 != 1);
+                }
+                self.tentative_games.retain(|x| x.id != *game_id);
+                dbg!("deleting message");
+                let _ = ctx
+                    .http
+                    .delete_message(u64::from(queue_id), u64::from(message_id))
+                    .await;
+                Some(team)
+            }
+            None => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -82,13 +456,14 @@ pub struct Player {
     pub rating: Rating,
 }
 
+//noinspection SpellCheckingInspection
 #[derive(Eq, PartialEq, Hash)]
 pub struct Game {
     id: i32,
     message_id: MessageId,
     expected_winrate: OrderedFloat<f64>,
     canceled: bool,
-    // 0 == false, 1 == true, 2 == player cancled queue
+    // 0 == false, 1 == true, 2 == player canceled queue
     top: [(UserId, i8); 2],
     jungle: [(UserId, i8); 2],
     mid: [(UserId, i8); 2],
@@ -97,18 +472,18 @@ pub struct Game {
 }
 
 impl Game {
-    fn new(queue: &QueueManager, expected_winrate: f64) -> Game {
+    fn new(game_manager: &GameManager, expected_winrate: f64) -> Game {
         Game {
             id: {
-                if queue.tentative_games.is_empty() {
-                    if queue.current_games.is_empty() {
-                        let conn = DBCONNECTION.db_connection.get().unwrap();
-                        next_game_id(&conn)
+                if game_manager.tentative_games.is_empty() {
+                    if game_manager.current_games.is_empty() {
+                        let mut conn = DBCONNECTION.db_connection.get().unwrap();
+                        next_game_id(&mut conn)
                     } else {
-                        queue.current_games.last().unwrap().id + 1
+                        game_manager.current_games.last().unwrap().id + 1
                     }
                 } else {
-                    queue.tentative_games.last().unwrap().id + 1
+                    game_manager.tentative_games.last().unwrap().id + 1
                 }
             },
             canceled: false,
@@ -121,8 +496,8 @@ impl Game {
             support: [(UserId(0), 0); 2],
         }
     }
-    fn from(queue: &QueueManager, teams: Vec<Vec<UserId>>, blue_winrate: f64) -> Game {
-        let mut game = Game::new(queue, blue_winrate);
+    fn from(game_manager: &GameManager, teams: Vec<Vec<UserId>>, blue_winrate: f64) -> Game {
+        let mut game = Game::new(game_manager, blue_winrate);
         for (i, team) in teams.iter().enumerate() {
             for (j, player) in team.iter().enumerate() {
                 if player == &UserId(0)
@@ -217,11 +592,7 @@ impl Game {
         false
     }
 
-    pub async fn update_status(
-        &mut self,
-        user_reactor: UserId,
-        emoji: &ReactionType,
-    ) -> Result<(), ()> {
+    pub async fn update_status(&mut self, user_reactor: UserId, emoji: char) -> Result<(), ()> {
         let players = self
             .top
             .iter_mut()
@@ -231,11 +602,11 @@ impl Game {
             .chain(self.support.iter_mut());
         for player in players {
             if player.0 == user_reactor {
-                if emoji == &ReactionType::Unicode(String::from("✅")) {
+                if emoji == '✅' {
                     player.1 = 1;
                     return Ok(());
                 }
-                if emoji == &ReactionType::Unicode(String::from("❌")) {
+                if emoji == '❌' {
                     self.canceled = true;
                     player.1 = 2;
                     return Err(());
@@ -344,12 +715,10 @@ impl QueueManager {
             bot: VecDeque::new(),
             support: VecDeque::new(),
             players: FxHashMap::default(),
-            current_games: Vec::new(),
-            tentative_games: Vec::new(),
             missing_roles: FxHashSet::default(),
         };
-        let conn = DBCONNECTION.db_connection.get().unwrap();
-        let result = get_players(&conn);
+        let mut conn = DBCONNECTION.db_connection.get().unwrap();
+        let result = get_players(&mut conn);
         for player in result {
             queue.players.insert(player.0, player.1);
         }
@@ -363,6 +732,8 @@ impl QueueManager {
         Ok(())
     }
 
+    //noinspection ALL
+    //noinspection SpellCheckingInspection
     pub fn check_puuid(&self, puuid: &str) -> Result<(), ()> {
         for player in self.players.values() {
             if player.riot_accounts.contains(&puuid.to_string()) {
@@ -375,8 +746,8 @@ impl QueueManager {
     pub fn unregister_player(&mut self, discord_id: UserId) {
         self.players.remove(&discord_id);
         {
-            let conn = DBCONNECTION.db_connection.get().unwrap();
-            remove_player(&conn, &discord_id);
+            let mut conn = DBCONNECTION.db_connection.get().unwrap();
+            remove_player(&mut conn, &discord_id);
         }
     }
 
@@ -396,42 +767,10 @@ impl QueueManager {
             ),
         };
         {
-            let conn = DBCONNECTION.db_connection.get().unwrap();
-            save_player(&conn, &discord_id, &player);
+            let mut conn = DBCONNECTION.db_connection.get().unwrap();
+            save_player(&mut conn, &discord_id, &player);
         }
         self.players.insert(discord_id, player);
-    }
-
-    fn check_player_in_game(&self, discord_id: UserId) -> Result<(), &str> {
-        if self
-            .current_games
-            .par_iter()
-            .any(|game| game.player_in_game(&discord_id))
-        {
-            return Err(
-                "Player is currently in a game. Either score the game or wait for it to end",
-            );
-        }
-        if self
-            .tentative_games
-            .par_iter()
-            .any(|game| game.player_in_game(&discord_id))
-        {
-            return Err("My guy. ur queued for a game like cancel it or what???????🦧");
-        }
-        Ok(())
-    }
-
-    pub async fn is_game_ready(&self, game_id: i32) -> bool {
-        let game = self
-            .tentative_games
-            .par_iter()
-            .find_any(|game| game.id == game_id);
-        if game.is_none() {
-            return false;
-        }
-        let game = game.unwrap();
-        game.is_ready().await
     }
 
     pub async fn queue_player(
@@ -439,12 +778,14 @@ impl QueueManager {
         discord_id: UserId,
         role: &str,
         push_front: bool,
+        game_manager: &RwLockReadGuard<'_, GameManager>,
     ) -> Result<(), String> {
         if !self.players.contains_key(&discord_id) {
             return Err(String::from("Player not registered."));
         }
 
-        if let Err(err) = self.check_player_in_game(discord_id) {
+        //to fix issue make argument to pass in ref to game_manager
+        if let Err(err) = game_manager.check_player_in_game(discord_id) {
             return Err(err.to_string());
         }
 
@@ -570,46 +911,6 @@ impl QueueManager {
             unique_players.insert(player);
         }
         unique_players.len()
-    }
-
-    pub async fn cancel_game(&mut self, user: UserId, ctx: &Context, queue_id: ChannelId) -> bool {
-        //find game with user in it
-        let game_position = self
-            .current_games
-            .par_iter()
-            .position_any(|game| game.player_in_game(&user));
-        if game_position.is_none() {
-            return false;
-        }
-        let game_position = game_position.unwrap();
-        let mut game = self.current_games.swap_remove(game_position);
-        game.update_status(user, &ReactionType::Unicode(String::from("❌")))
-            .await
-            .unwrap_err();
-        let mut team = game.team(0);
-        team.extend(game.team(1).iter());
-        if game.canceled {
-            team.retain(|x| x.2 != 2);
-        } else {
-            team.retain(|x| x.2 != 1);
-        }
-        for player in team.iter() {
-            if let Err(e) = match player.1 {
-                0 => self.queue_player(player.0, "top", true).await,
-                1 => self.queue_player(player.0, "jng", true).await,
-                2 => self.queue_player(player.0, "mid", true).await,
-                3 => self.queue_player(player.0, "bot", true).await,
-                4 => self.queue_player(player.0, "sup", true).await,
-                _ => panic!("Invalid role"),
-            } {
-                error!("{}", e);
-            }
-        }
-        let _ = ctx
-            .http
-            .delete_message(u64::from(queue_id), u64::from(game.message_id))
-            .await;
-        true
     }
 
     async fn find_game(&mut self) -> Option<Game> {
@@ -749,7 +1050,7 @@ impl QueueManager {
                         self.players.get(&sup2).unwrap().rating,
                     ];
                     let teams = vec![team1, team2];
-                    team1_winrate = predicte_win(&teams);
+                    team1_winrate = predict_win(&teams);
                     if team1_winrate > 0.45 && team1_winrate < 0.55 {
                         let team1 = vec![top, jng, mid, bot, sup];
                         let team2 = vec![top2, jng2, mid2, bot2, sup2];
@@ -799,7 +1100,11 @@ impl QueueManager {
                 error!("{}", e);
             }
         }
-        Some(Game::from(self, final_team, team1_winrate))
+        Some(Game::from(
+            &*GAME_MANAGER.read().await,
+            final_team,
+            team1_winrate,
+        ))
     }
 
     fn get_roles(&self, player: &UserId) -> Option<Vec<&str>> {
@@ -871,7 +1176,7 @@ impl QueueManager {
             match game {
                 Some(game) => {
                     info!("Found game");
-                    self.tentative_games.push(game);
+                    GAME_MANAGER.write().await.tentative_games.push(game);
                     true
                 }
                 None => {
@@ -907,15 +1212,6 @@ impl QueueManager {
             return None;
         }
         Some(self.missing_roles.iter().join(", "))
-    }
-
-    pub async fn get_side(&self, player: UserId) -> Result<(i32, String), String> {
-        for game in self.current_games.iter() {
-            if game.player_in_game(&player) {
-                return Ok(game.get_side(player));
-            }
-        }
-        Err("Player not in game".to_string())
     }
 
     pub async fn display(&self, ctx: &Context, guild_id: GuildId) -> String {
@@ -967,173 +1263,6 @@ impl QueueManager {
         final_result
     }
 
-    pub async fn get_tentative_games(
-        &self,
-        ctx: &Context,
-        guild_id: GuildId,
-    ) -> Vec<(i32, MessageId, (String, String, String), OrderedFloat<f64>)> {
-        let mut result = Vec::new();
-        for game in self.tentative_games.iter() {
-            let body = game.display(ctx, guild_id, false).await;
-            result.push((game.id, game.message_id, body, game.expected_winrate));
-        }
-        result
-    }
-
-    pub async fn players_to_requeue(&self, game_id: i32) -> String {
-        let game = self.current_games.par_iter().find_any(|x| x.id == game_id);
-        if game.is_none() {
-            return String::from("Game not found");
-        }
-        let game = game.unwrap();
-        let blue = game.team(0);
-        let red = game.team(1);
-        let teams = blue.iter().chain(red.iter());
-        let mut output = String::new();
-        for player in teams {
-            let _ = write!(output, "<@{}>", player.0);
-        }
-        output
-    }
-
-    pub async fn win(
-        &mut self,
-        game: (i32, String),
-        ctx: &Context,
-        queue_id: ChannelId,
-        dont_queue: Vec<UserId>,
-    ) {
-        let game_final = self.current_games.swap_remove(
-            self.current_games
-                .par_iter()
-                .position_any(|x| x.id == game.0)
-                .unwrap(),
-        );
-        let blue = game_final.team(0);
-        let red = game_final.team(1);
-        let blue_ratings: Vec<Rating> = blue
-            .par_iter()
-            .map(|x| self.players.get(&x.0).unwrap().rating)
-            .collect();
-        let red_ratings: Vec<Rating> = red
-            .par_iter()
-            .map(|x| self.players.get(&x.0).unwrap().rating)
-            .collect();
-        let new_ratings = if game.1 == "Blue" {
-            rate(&[blue_ratings, red_ratings])
-        } else {
-            rate(&[red_ratings, blue_ratings])
-        };
-        for team in new_ratings {
-            for player in team {
-                let user_id = player.user_id;
-                let rating = player;
-                self.players.get_mut(&user_id).unwrap().rating = player;
-                let conn = DBCONNECTION.db_connection.get().unwrap();
-                update_rating(&conn, &user_id, &rating);
-            }
-        }
-        let conn = DBCONNECTION.db_connection.get().unwrap();
-        update_game(&conn, &game_final, game.1 == "Blue");
-        for team in vec![blue, red] {
-            for player in team {
-                let user_id = player.0;
-                if !dont_queue.contains(&user_id) {
-                    let mut role = "";
-                    match player.1 {
-                        0 => {
-                            role = "top";
-                        }
-                        1 => {
-                            role = "jng";
-                        }
-                        2 => {
-                            role = "mid";
-                        }
-                        3 => {
-                            role = "bot";
-                        }
-                        4 => {
-                            role = "sup";
-                        }
-                        _ => {}
-                    }
-                    if let Err(e) = self.queue_player(user_id, role, false).await {
-                        let response = queue_id
-                            .say(&ctx.http, format!("{}\nError: {}", user_id, e))
-                            .await
-                            .unwrap();
-                        sleep(Duration::from_secs(3)).await;
-                        response.delete(&ctx.http).await.unwrap();
-                    }
-                }
-            }
-        }
-        let _ = ctx
-            .http
-            .delete_message(u64::from(queue_id), u64::from(game_final.message_id))
-            .await;
-    }
-
-    pub async fn get_emebed_body(
-        &self,
-        ctx: &Context,
-        guild_id: GuildId,
-        game_id: i32,
-    ) -> (String, String, String) {
-        let game = self
-            .tentative_games
-            .par_iter()
-            .find_any(|x| x.id == game_id);
-        if game.is_none() {
-            return ("".to_string(), "".to_string(), "".to_string());
-        }
-        let game = game.unwrap();
-        let body = game.display(ctx, guild_id, false).await;
-        body
-    }
-
-    pub async fn update_status(
-        &mut self,
-        user_reactor: UserId,
-        emoji: &ReactionType,
-        game_id: i32,
-    ) -> Result<(), ()> {
-        let game = self
-            .tentative_games
-            .par_iter_mut()
-            .find_any(|x| x.id == game_id);
-        if game.is_none() {
-            return Ok(());
-        }
-        let game = game.unwrap();
-        game.update_status(user_reactor, emoji).await
-    }
-
-    pub async fn unready(
-        &mut self,
-        user_reactor: UserId,
-        emoji: &ReactionType,
-        game_id: i32,
-    ) -> bool {
-        let game = self
-            .tentative_games
-            .par_iter_mut()
-            .find_any(|x| x.id == game_id);
-        if game.is_none() {
-            return false;
-        }
-        let game = game.unwrap();
-        game.unready(user_reactor, emoji).await
-    }
-
-    pub async fn set_message_id(&mut self, id: i32, message_id: MessageId) {
-        self.tentative_games.par_iter_mut().for_each(|game| {
-            if game.id == id {
-                game.message_id = message_id;
-            }
-        });
-    }
     pub async fn clear_queue(&mut self) {
         self.top.clear();
         self.jungle.clear();
@@ -1180,102 +1309,9 @@ impl QueueManager {
                 let name = result.unwrap().name;
                 tmp.push(name);
             }
-            players_summoner_names.push(tmp.join(", ").replace(" ", "%20"));
+            players_summoner_names.push(tmp.join(", ").replace(' ', "%20"));
         }
         format!("**\nBlue OP.GG**: https://na.op.gg/multisearch/na?summoners={}\n**Red OP.GG**: https://na.op.gg/multisearch/na?summoners={}", players_summoner_names[0], players_summoner_names[1])
-    }
-
-    pub async fn start_game(
-        &mut self,
-        game_id: &i32,
-        ctx: &Context,
-        queue_id: ChannelId,
-        message_id: MessageId,
-        guild_id: GuildId,
-        riot: &str,
-    ) {
-        let index = self
-            .tentative_games
-            .par_iter()
-            .position_any(|x| x.id == *game_id);
-        if index.is_none() {
-            return;
-        }
-        let index = index.unwrap();
-        let game = self.tentative_games.swap_remove(index);
-        let body = game.display(ctx, guild_id, true).await;
-        let opgg_links = self.get_opgg_links(&game, riot).await;
-        queue_id
-            .delete_reaction_emoji(
-                &ctx.http,
-                message_id,
-                ReactionType::Unicode(String::from("✅")),
-            )
-            .await
-            .unwrap();
-        queue_id
-            .delete_reaction_emoji(
-                &ctx.http,
-                message_id,
-                ReactionType::Unicode(String::from("❌")),
-            )
-            .await
-            .unwrap();
-        queue_id
-            .edit_message(&ctx.http, message_id, |m| {
-                m.content("")
-                .embed(|e| {
-                    e.title("📢 Game accepted 📢")
-                        .description(&format!("Game {} has been validated and added to the database\nOnce the game has been played, one of the winners can score it with `/won`\nIf you wish to cancel the game, use `/cancel`", game.id + 1))
-                        .field("BLUE", body.0, true)
-                        .field("RED", body.1, true)
-                }).content(opgg_links)
-            })
-            .await
-            .unwrap();
-        self.current_games.push(game);
-    }
-
-    pub async fn remove_game(
-        &mut self,
-        game_id: &i32,
-        ctx: &Context,
-        queue_id: ChannelId,
-        message_id: MessageId,
-    ) {
-        let game = self
-            .tentative_games
-            .par_iter()
-            .find_any(|game| game.id == *game_id);
-        match game {
-            Some(game) => {
-                let mut team = game.team(0);
-                team.extend(game.team(1).iter());
-                if game.canceled {
-                    team.retain(|x| x.2 != 2);
-                } else {
-                    team.retain(|x| x.2 != 1);
-                }
-                self.tentative_games.retain(|x| x.id != *game_id);
-                for player in team.iter() {
-                    match player.1 {
-                        0 => self.queue_player(player.0, "top", true),
-                        1 => self.queue_player(player.0, "jng", true),
-                        2 => self.queue_player(player.0, "mid", true),
-                        3 => self.queue_player(player.0, "bot", true),
-                        4 => self.queue_player(player.0, "sup", true),
-                        _ => panic!("Invalid role"),
-                    }
-                    .await
-                    .expect("Failed to queue player");
-                }
-                let _ = ctx
-                    .http
-                    .delete_message(u64::from(queue_id), u64::from(message_id))
-                    .await;
-            }
-            None => {}
-        }
     }
 }
 
@@ -1624,29 +1660,29 @@ pub async fn get_msl_points(
     Ok(player_points.into())
 }
 
-async fn get_name(player: &UserId, ctx: &Context, guild_id: GuildId) -> String {
-    // let name = if player == &0
-    //     || player == &1
-    //     || player == &2
-    //     || player == &3
-    //     || player == &4
-    //     || player == &5
-    //     || player == &6
-    //     || player == &7
-    //     || player == &8
-    //     || player == &9
-    // {
-    //     format!("Unknown {}", player)
-    // } else {
-    //     player.to_user(&ctx.http).await.unwrap().name
-    // };
-    let username = player.to_user(&ctx.http).await.unwrap().name;
-    let name = player
-        .to_user(&ctx.http)
-        .await
-        .unwrap()
-        .nick_in(&ctx.http, guild_id)
-        .await
-        .unwrap_or(username);
-    name
+async fn get_name(player: &UserId, ctx: &Context, _guild_id: GuildId) -> String {
+    if player == &0
+        || player == &1
+        || player == &2
+        || player == &3
+        || player == &4
+        || player == &5
+        || player == &6
+        || player == &7
+        || player == &8
+        || player == &9
+    {
+        format!("Unknown {}", player)
+    } else {
+        player.to_user(&ctx.http).await.unwrap().name
+    }
+    // let username = player.to_user(&ctx.http).await.unwrap().name;
+
+    // player
+    //     .to_user(&ctx.http)
+    //     .await
+    //     .unwrap()
+    //     .nick_in(&ctx.http, guild_id)
+    //     .await
+    //     .unwrap_or(username)
 }

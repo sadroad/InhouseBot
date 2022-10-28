@@ -133,7 +133,7 @@ fn bt_full(teams: &Vec<Vec<Rating>>) -> Vec<Vec<Rating>> {
     result
 }
 
-pub fn predicte_win(teams: &Vec<Vec<Rating>>) -> f64 {
+pub fn predict_win(teams: &Vec<Vec<Rating>>) -> f64 {
     let team_ratings = team_rating(teams);
     let n: f64 = teams.len() as f64;
     let denom: f64 = (n * (n - 1.0)) / 2.0;

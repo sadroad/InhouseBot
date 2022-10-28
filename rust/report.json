@@ -1,0 +1,170 @@
+{
+  "version": 0,
+  "root_name": "bot",
+  "workspace_crates": {
+    "bot": {
+      "full_path": "/Users/sadroad/Documents/Coding/OME Projects/InhouseBot/rust/Cargo.toml",
+      "dependencies": {
+        "reqwest": {
+          "original_features": [
+            "default-tls"
+          ],
+          "successfully_removed_features": [
+            "default-tls"
+          ],
+          "unsuccessfully_removed_features": []
+        },
+        "tracing-subscriber": {
+          "original_features": [
+            "std",
+            "fmt",
+            "smallvec",
+            "ansi",
+            "tracing-log"
+          ],
+          "successfully_removed_features": [
+            "tracing-log",
+            "std",
+            "ansi",
+            "smallvec"
+          ],
+          "unsuccessfully_removed_features": [
+            "fmt"
+          ]
+        },
+        "tokio": {
+          "original_features": [
+            "fs",
+            "sync",
+            "signal",
+            "io-std",
+            "rt-multi-thread",
+            "rt",
+            "process",
+            "parking_lot",
+            "net",
+            "full",
+            "macros",
+            "time",
+            "io-util"
+          ],
+          "successfully_removed_features": [
+            "io-std",
+            "process",
+            "parking_lot",
+            "sync",
+            "io-util",
+            "fs",
+            "time",
+            "net",
+            "rt",
+            "macros",
+            "full"
+          ],
+          "unsuccessfully_removed_features": [
+            "signal",
+            "rt-multi-thread"
+          ]
+        },
+        "ordered-float": {
+          "original_features": [
+            "std"
+          ],
+          "successfully_removed_features": [
+            "std"
+          ],
+          "unsuccessfully_removed_features": []
+        },
+        "riven": {
+          "original_features": [
+            "rustls-tls"
+          ],
+          "successfully_removed_features": [
+            "rustls-tls"
+          ],
+          "unsuccessfully_removed_features": []
+        },
+        "serenity": {
+          "original_features": [
+            "rustversion",
+            "gateway",
+            "collector",
+            "model",
+            "rustls_backend",
+            "default_no_backend"
+          ],
+          "successfully_removed_features": [
+            "model",
+            "gateway",
+            "rustversion"
+          ],
+          "unsuccessfully_removed_features": [
+            "default_no_backend",
+            "collector",
+            "rustls_backend"
+          ]
+        },
+        "tracing": {
+          "original_features": [
+            "std",
+            "attributes"
+          ],
+          "successfully_removed_features": [
+            "attributes",
+            "std"
+          ],
+          "unsuccessfully_removed_features": []
+        },
+        "serde_json": {
+          "original_features": [
+            "std"
+          ],
+          "successfully_removed_features": [
+            "std"
+          ],
+          "unsuccessfully_removed_features": []
+        },
+        "diesel": {
+          "original_features": [
+            "postgres",
+            "postgres_backend",
+            "32-column-tables",
+            "pq-sys",
+            "with-deprecated",
+            "r2d2"
+          ],
+          "successfully_removed_features": [
+            "postgres_backend",
+            "32-column-tables",
+            "pq-sys",
+            "with-deprecated"
+          ],
+          "unsuccessfully_removed_features": [
+            "postgres",
+            "r2d2"
+          ]
+        },
+        "rand": {
+          "original_features": [
+            "std_rng",
+            "std"
+          ],
+          "successfully_removed_features": [
+            "std",
+            "std_rng"
+          ],
+          "unsuccessfully_removed_features": []
+        },
+        "scraper": {
+          "original_features": [
+            "main"
+          ],
+          "successfully_removed_features": [
+            "main"
+          ],
+          "unsuccessfully_removed_features": []
+        }
+      }
+    }
+  }
+}

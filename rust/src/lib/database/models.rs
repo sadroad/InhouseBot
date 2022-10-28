@@ -1,3 +1,5 @@
+use diesel::{Insertable, Queryable};
+
 use super::schema::{game_roles, games, player, player_ratings, server_information};
 
 #[derive(Queryable)]
@@ -13,7 +15,7 @@ pub struct ServerInformation {
 }
 
 #[derive(Insertable)]
-#[table_name = "server_information"]
+#[diesel(table_name = server_information)]
 pub struct NewServerInformation {
     pub queue_channel: i64,
     pub command_channel: i64,
@@ -31,7 +33,7 @@ pub struct DbPlayer {
 }
 
 #[derive(Insertable)]
-#[table_name = "player"]
+#[diesel(table_name = player)]
 pub struct NewPlayer {
     pub discord_id: i64,
     pub accounts: Vec<String>,
@@ -45,7 +47,7 @@ pub struct PlayerRatings {
 }
 
 #[derive(Insertable)]
-#[table_name = "player_ratings"]
+#[diesel(table_name = player_ratings)]
 pub struct NewPlayerRatings {
     pub discord_id: i64,
     pub mu: f64,
@@ -62,7 +64,7 @@ pub struct GameRoles {
 }
 
 #[derive(Insertable)]
-#[table_name = "game_roles"]
+#[diesel(table_name = game_roles)]
 pub struct NewGameRoles {
     pub discord_id: i64,
     pub game_id: i32,
@@ -78,7 +80,7 @@ pub struct Games {
 }
 
 #[derive(Insertable)]
-#[table_name = "games"]
+#[diesel(table_name = games)]
 pub struct NewGames {
     pub id: i32,
     pub players: Vec<i64>,

@@ -5,7 +5,7 @@ use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool};
 use std::env;
 
-use diesel_migrations::embed_migrations;
+use diesel_migrations::{embed_migrations, EmbeddedMigrations};
 
 use crate::commands::admin::clear_channel;
 
@@ -13,6 +13,7 @@ use super::inhouse::{Game, Player, BOT_EMOJI, JG_EMOJI, MID_EMOJI, SUP_EMOJI, TO
 use super::openskill::lib::Rating;
 use serenity::http::Http;
 use serenity::model::id::{ChannelId, UserId};
+use diesel_migrations::MigrationHarness;
 
 use rayon::prelude::*;
 
@@ -25,18 +26,20 @@ pub type PgPool = Pool<ConnectionManager<PgConnection>>;
 pub struct Values {
     pub db_connection: PgPool,
 }
-embed_migrations!();
+
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+
 pub fn establish_connection() -> PgPool {
     let database_url =
         env::var("DATABASE_URL").expect("Expected to find a database url in the environment");
     let manager = ConnectionManager::<PgConnection>::new(database_url);
     let pool = Pool::new(manager).expect("Failed to create pool.");
-    let conn = pool.get().expect("Failed to get connection from pool.");
-    embedded_migrations::run(&conn).unwrap();
+    let mut conn = pool.get().expect("Failed to get connection from pool.");
+    conn.run_pending_migrations(MIGRATIONS).unwrap();
     pool
 }
 
-pub fn save_player(conn: &PgConnection, discord_id: &UserId, player_info: &Player) {
+pub fn save_player(conn: &mut PgConnection, discord_id: &UserId, player_info: &Player) {
     use schema::{player, player_ratings};
 
     let new_player = NewPlayer {
@@ -61,7 +64,7 @@ pub fn save_player(conn: &PgConnection, discord_id: &UserId, player_info: &Playe
         .expect("Error saving new player ratings");
 }
 
-pub fn remove_player(conn: &PgConnection, discord_id: &UserId) {
+pub fn remove_player(conn: &mut PgConnection, discord_id: &UserId) {
     use schema::{game_roles, player, player_ratings};
 
     diesel::delete(player_ratings::table)
@@ -78,7 +81,7 @@ pub fn remove_player(conn: &PgConnection, discord_id: &UserId) {
         .expect("Error deleting player");
 }
 
-pub fn get_players(conn: &PgConnection) -> Vec<(UserId, Player)> {
+pub fn get_players(conn: &mut PgConnection) -> Vec<(UserId, Player)> {
     use schema::{player, player_ratings};
 
     let players = player::table
@@ -102,7 +105,7 @@ pub fn get_players(conn: &PgConnection) -> Vec<(UserId, Player)> {
     return_players
 }
 
-pub async fn init_server_info(conn: &PgConnection, ctx: &Arc<Http>) -> ChannelId {
+pub async fn init_server_info(conn: &mut PgConnection, ctx: &Arc<Http>) -> ChannelId {
     use schema::server_information;
 
     //check if server_information table is empty
@@ -138,7 +141,7 @@ pub async fn init_server_info(conn: &PgConnection, ctx: &Arc<Http>) -> ChannelId
     }
 }
 
-pub fn update_emoji(conn: &PgConnection, emojis: [&str; 5]) {
+pub fn update_emoji(conn: &mut PgConnection, emojis: [&str; 5]) {
     use schema::server_information;
 
     diesel::update(server_information::table.find(1))
@@ -153,7 +156,7 @@ pub fn update_emoji(conn: &PgConnection, emojis: [&str; 5]) {
         .expect("Error updating emoji");
 }
 
-pub fn update_queue_channel(conn: &PgConnection, channel: &ChannelId) {
+pub fn update_queue_channel(conn: &mut PgConnection, channel: &ChannelId) {
     use schema::server_information;
 
     diesel::update(server_information::table.find(1))
@@ -162,7 +165,7 @@ pub fn update_queue_channel(conn: &PgConnection, channel: &ChannelId) {
         .expect("Error updating queue channel");
 }
 
-pub fn next_game_id(conn: &PgConnection) -> i32 {
+pub fn next_game_id(conn: &mut PgConnection) -> i32 {
     use schema::games;
 
     let games = games::table
@@ -176,7 +179,7 @@ pub fn next_game_id(conn: &PgConnection) -> i32 {
     }
 }
 
-pub fn update_rating(conn: &PgConnection, discord_id: &UserId, rating: &Rating) {
+pub fn update_rating(conn: &mut PgConnection, discord_id: &UserId, rating: &Rating) {
     use schema::player_ratings;
 
     diesel::update(player_ratings::table)
@@ -189,7 +192,7 @@ pub fn update_rating(conn: &PgConnection, discord_id: &UserId, rating: &Rating) 
         .expect("Error updating player ratings");
 }
 
-pub fn update_game(conn: &PgConnection, game: &Game, winner: bool) {
+pub fn update_game(conn: &mut PgConnection, game: &Game, winner: bool) {
     use schema::game_roles;
     use schema::games;
 

@@ -1,3 +1,4 @@
+use crate::GAME_MANAGER;
 use crate::{QueueChannel, QueueEmbed, QUEUE_MANAGER};
 
 use super::queue::display;
@@ -88,8 +89,8 @@ pub async fn mark(
                         let queue = data.get::<QueueEmbed>().unwrap();
                         *queue_channel.lock().await = command.channel_id;
                         *queue.lock().await = MessageId(0);
-                        let conn = DBCONNECTION.db_connection.get().unwrap();
-                        update_queue_channel(&conn, &command.channel_id);
+                        let mut conn = DBCONNECTION.db_connection.get().unwrap();
+                        update_queue_channel(&mut conn, &command.channel_id);
                     }
                     command
                         .edit_original_interaction_response(&ctx.http, |response| {
@@ -163,8 +164,8 @@ pub async fn unmark(
                 let data = ctx.data.read().await;
                 let queue_channel = data.get::<QueueChannel>().unwrap();
                 *queue_channel.lock().await = ChannelId(0);
-                let conn = DBCONNECTION.db_connection.get().unwrap();
-                update_queue_channel(&conn, &ChannelId(0));
+                let mut conn = DBCONNECTION.db_connection.get().unwrap();
+                update_queue_channel(&mut conn, &ChannelId(0));
             }
             clear_channel(&ctx.http, command.channel_id).await;
             command
@@ -223,8 +224,8 @@ pub async fn role_emojis(
     let sup = rem_front_last(&args.next().unwrap().value.as_ref().unwrap().to_string());
     *SUP_EMOJI.write().unwrap() = format!("{} ", sup);
     {
-        let conn = DBCONNECTION.db_connection.get().unwrap();
-        update_emoji(&conn, [&top, &jg, &mid, &bot, &sup]);
+        let mut conn = DBCONNECTION.db_connection.get().unwrap();
+        update_emoji(&mut conn, [&top, &jg, &mid, &bot, &sup]);
     }
     display(ctx, command.guild_id.unwrap()).await;
     command
@@ -256,44 +257,45 @@ pub async fn test(
             queue.register_player(UserId(i), vec![], rng);
         }
         info!("Done. Adding to queue");
+        let game_manager = GAME_MANAGER.read().await;
         queue
-            .queue_player(UserId(0), &String::from("top"), false)
+            .queue_player(UserId(0), &String::from("top"), false, &game_manager)
             .await
             .unwrap();
         queue
-            .queue_player(UserId(1), &String::from("top"), false)
+            .queue_player(UserId(1), &String::from("top"), false, &game_manager)
             .await
             .unwrap();
         queue
-            .queue_player(UserId(2), &String::from("jng"), false)
+            .queue_player(UserId(2), &String::from("jng"), false, &game_manager)
             .await
             .unwrap();
         queue
-            .queue_player(UserId(3), &String::from("jng"), false)
+            .queue_player(UserId(3), &String::from("jng"), false, &game_manager)
             .await
             .unwrap();
         queue
-            .queue_player(UserId(4), &String::from("mid"), false)
+            .queue_player(UserId(4), &String::from("mid"), false, &game_manager)
             .await
             .unwrap();
         queue
-            .queue_player(UserId(5), &String::from("mid"), false)
+            .queue_player(UserId(5), &String::from("mid"), false, &game_manager)
             .await
             .unwrap();
         queue
-            .queue_player(UserId(6), &String::from("bot"), false)
+            .queue_player(UserId(6), &String::from("bot"), false, &game_manager)
             .await
             .unwrap();
         queue
-            .queue_player(UserId(7), &String::from("bot"), false)
+            .queue_player(UserId(7), &String::from("bot"), false, &game_manager)
             .await
             .unwrap();
         queue
-            .queue_player(UserId(8), &String::from("sup"), false)
+            .queue_player(UserId(8), &String::from("sup"), false, &game_manager)
             .await
             .unwrap();
         queue
-            .queue_player(UserId(9), &String::from("sup"), false)
+            .queue_player(UserId(9), &String::from("sup"), false, &game_manager)
             .await
             .unwrap();
         info!("Done.");
