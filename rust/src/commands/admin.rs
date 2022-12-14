@@ -76,7 +76,7 @@ pub async fn mark(
             react_msg.react(&ctx.http, '❌').await?;
 
             if let Some(reaction) = &react_msg
-                .await_reaction(&ctx)
+                .await_reaction(ctx)
                 .timeout(Duration::from_secs(60))
                 .author_id(command.member.as_ref().unwrap().user.id)
                 .await

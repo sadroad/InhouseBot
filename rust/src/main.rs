@@ -1,13 +1,10 @@
-//TODO enable proper caching for the entire bot, look at serenity's cache options
-//TODO look into the sharding feature of serenity, it's a good idea to have a shard for each guild but it seems to be lagging the bot by disconnecting from the guild
 mod commands;
-mod lib;
 
 use crate::commands::admin::*;
 use crate::commands::meta::*;
 use crate::commands::queue::*;
-use crate::lib::database::*;
-use crate::lib::inhouse::*;
+use bot::database::*;
+use bot::inhouse::*;
 
 use std::collections::HashMap;
 use std::env;

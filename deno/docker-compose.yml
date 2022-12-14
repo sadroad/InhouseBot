@@ -1,0 +1,22 @@
+version: '3'
+
+services:
+  # db:
+  #   image: "postgres:alpine"
+  #   restart: unless-stopped
+  #   volumes:
+  #     - type: volume
+  #       source: pgdata
+  #       target: /var/lib/postgresql/data
+  #   environment:
+  #     POSTGRES_DB: mochi
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #   ports:
+  #     - 0.0.0.0:5432:5432
+  bot:
+    build: .
+    # depends_on:
+    #   - db
+
+# volumes:
+#   pgdata:

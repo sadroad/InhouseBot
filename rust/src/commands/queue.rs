@@ -166,7 +166,7 @@ pub async fn won(
         })
         .await.unwrap();
             react_message.react(&ctx.http, '✅').await?;
-            let mut collector = EventCollectorBuilder::new(&ctx)
+            let mut collector = EventCollectorBuilder::new(ctx)
                 .add_event_type(EventType::ReactionAdd)
                 .add_event_type(EventType::ReactionRemove)
                 .add_message_id(react_message.id)
@@ -210,7 +210,7 @@ pub async fn won(
                 }
                 let no_requeue = channel_id.say(&ctx.http, &format!("{}\n I will requeue you in 5 seconds. If you **dont** want to be queued, react with a ❌", mentions)).await?;
                 no_requeue.react(&ctx.http, '❌').await?;
-                let mut collector = EventCollectorBuilder::new(&ctx)
+                let mut collector = EventCollectorBuilder::new(ctx)
                     .add_event_type(EventType::ReactionAdd)
                     .add_event_type(EventType::ReactionRemove)
                     .add_message_id(no_requeue.id)
@@ -353,7 +353,7 @@ pub async fn vote_clear(
         )
         .await?;
     response.react(&ctx.http, '✅').await?;
-    let mut collector = EventCollectorBuilder::new(&ctx)
+    let mut collector = EventCollectorBuilder::new(ctx)
         .add_event_type(EventType::ReactionAdd)
         .add_event_type(EventType::ReactionRemove)
         .add_message_id(response.id)
@@ -457,7 +457,7 @@ pub async fn vote_remove(
         )
         .await?;
             response.react(&ctx.http, '✅').await?;
-            let mut collector = EventCollectorBuilder::new(&ctx)
+            let mut collector = EventCollectorBuilder::new(ctx)
                 .add_event_type(EventType::ReactionAdd)
                 .add_event_type(EventType::ReactionRemove)
                 .add_message_id(response.id)
@@ -619,7 +619,7 @@ pub async fn show_games(ctx: &Context, guild_id: GuildId) {
                 game_manager.set_message_id(game.0, message_id).await;
             }
             let mut collector = response
-                .await_component_interactions(&ctx)
+                .await_component_interactions(ctx)
                 .message_id(message_id)
                 .timeout(Duration::from_secs(180))
                 .build();

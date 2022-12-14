@@ -57,7 +57,7 @@ pub async fn register(
     let accounts;
     if let Some(response) = dm
         .channel_id
-        .await_reply(&ctx)
+        .await_reply(ctx)
         .timeout(Duration::from_secs(60))
         .await
     {

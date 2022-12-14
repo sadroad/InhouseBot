@@ -1,0 +1,57 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["deno"]
+  output = "../generated/client"
+}
+
+
+datasource db {
+  provider = "cockroachdb"
+  url      = env("DATABASE_URL")
+}
+
+model ServerInformation {
+  id Int @id @default(sequence())
+  queue_channel BigInt
+  command_channel BigInt 
+  top_emoji String
+  jungle_emoji String
+  middle_emoji String
+  bottom_emoji String
+  support_emoji String
+}
+
+model Player {
+  id Int @id @default(sequence())
+  discord_id BigInt @unique
+  accounts Account[]
+  games Game_Player[]
+  mu Float
+  sigma Float
+}
+
+model Account {
+  id Int @id @default(sequence())
+  puuid String @unique
+  player Player @relation(fields: [player_id], references: [discord_id])
+  player_id BigInt
+}
+
+model Game {
+  id Int @id @default(sequence())
+  winner Boolean
+  players Game_Player[]
+}
+
+model Game_Player {
+  id Int @id @default(sequence())
+  game Game @relation(fields: [game_id], references: [id])
+  game_id Int
+  role String
+  blue_side Boolean
+  player Player @relation(fields: [player_id], references: [discord_id])
+  player_id BigInt
+}
