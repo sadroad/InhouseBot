@@ -1,0 +1,12 @@
+meta.rs compelte
+delete messages not from bot in queue channel
+
+Things to do:
+make sure the bot commands only work in the queue channel and the command channel except for admins
+-probably just a simple check in the command handeler and ask them to use the command in the correct channel
+
+admin.rs
+-mark channel for non-queue commands
+-unmark channel
+-role emoji
+-remove player from queue

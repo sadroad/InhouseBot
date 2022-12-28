@@ -1,5 +1,6 @@
 import { Rating } from "../../deps.ts";
 import { ServerInformation } from "../../generated/client/deno/index.d.ts";
+import { queue_update } from "../inhouse/constants.ts";
 import { DiscordID, Player } from "../types/inhouse.ts";
 import { prisma } from "./mod.ts";
 
@@ -20,7 +21,7 @@ export const get_players = async (): Promise<[DiscordID, Player][]> => {
   });
 };
 
-export const init_or_get_server_info = async (): Promise<ServerInformation> => {
+export async function init_or_get_server_info(): Promise<ServerInformation> {
   const server_info = await prisma.serverInformation.findMany();
   if (server_info.length === 0) {
     const new_info = await prisma.serverInformation.create({
@@ -38,7 +39,7 @@ export const init_or_get_server_info = async (): Promise<ServerInformation> => {
   } else {
     return server_info[0];
   }
-};
+}
 
 export const add_player = async (
   discord_id: DiscordID,
@@ -62,4 +63,22 @@ export const add_player = async (
       },
     },
   });
+};
+
+export const update_queue_id = async (queue_id: bigint) => {
+  await prisma.serverInformation.updateMany({
+    data: {
+      queue_channel: queue_id,
+    },
+  });
+  queue_update(queue_id);
+};
+
+export const update_command_id = async (command_id: bigint) => {
+  await prisma.serverInformation.updateMany({
+    data: {
+      command_channel: command_id,
+    },
+  });
+  queue_update(command_id);
 };

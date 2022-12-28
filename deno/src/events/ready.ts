@@ -1,5 +1,7 @@
 import { Bot } from "../../bot.ts";
-import { load_players } from "../inhouse/mod.ts";
+import { clear_channel } from "../commands/admin/mark.ts";
+import { queue_channel_id } from "../inhouse/constants.ts";
+import { display_queue, load_players } from "../inhouse/mod.ts";
 import log from "../utils/logger.ts";
 
 Bot.events.ready = async (_, payload) => {
@@ -18,5 +20,7 @@ Bot.events.ready = async (_, payload) => {
 async function botFullyReady() {
   // DO STUFF YOU WANT HERE ONCE BOT IS FULLY ONLINE.
   await load_players();
+  await clear_channel(queue_channel_id);
+  await display_queue();
   log.info("[READY] Bot is fully online.");
 }

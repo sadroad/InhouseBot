@@ -17,7 +17,8 @@ export interface QueueManager {
   bottom: DiscordID[];
   support: DiscordID[];
   players: Map<DiscordID, Player>;
-  missing_roles: Set<Role>;
+  duplicate_roles: Set<Role>;
+  number_of_queued_players: number;
 }
 
 export interface GameManager {

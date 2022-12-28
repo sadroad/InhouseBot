@@ -31,10 +31,23 @@ export const RANKPOINTTABLE = [
 ];
 
 const server_info = await init_or_get_server_info();
-export const queue_channel_id = server_info.queue_channel;
-export const command_channel_id = server_info.command_channel;
+export let queue_channel_id = server_info.queue_channel;
+export let command_channel_id = server_info.command_channel;
+export let queue_message_id = 0 as unknown as bigint;
 export const top_emoji = server_info.top_emoji;
 export const jungle_emoji = server_info.jungle_emoji;
 export const middle_emoji = server_info.middle_emoji;
 export const bottom_emoji = server_info.bottom_emoji;
 export const support_emoji = server_info.support_emoji;
+
+export const queue_update = (id: bigint) => {
+  queue_channel_id = id;
+};
+
+export const command_update = (id: bigint) => {
+  command_channel_id = id;
+};
+
+export const update_queue_message = (id: bigint) => {
+  queue_message_id = id;
+};

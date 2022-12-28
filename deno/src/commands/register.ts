@@ -12,6 +12,7 @@ import {
 import log from "../utils/logger.ts";
 import { createCommand } from "./mod.ts";
 import { PUUID } from "../types/inhouse.ts";
+import { sleep } from "../utils/helpers.ts";
 
 createCommand({
   name: "register",
@@ -22,8 +23,7 @@ createCommand({
     required: true,
     name: "accounts",
     type: ApplicationCommandOptionTypes.String,
-    description:
-      "Please enter your accounts seperated by comma. Ex: sadroad, Drexnezod",
+    description: "Please enter the account you'll be playing on.",
   }],
   execute: async (Bot, interaction) => {
     await Bot.helpers.sendPrivateInteractionResponse(
@@ -47,9 +47,18 @@ createCommand({
       log.error("Discord failed to send data");
       return;
     }
-    const accounts = (options[0].value as string ?? "").split(",").map(
+    let accounts = (options[0].value as string ?? "").split(",").map(
       (account) => account.trim(),
     );
+    if (accounts.length === 0) {
+      await Bot.helpers.editOriginalInteractionResponse(interaction.token, {
+        content: "Please enter at least one account",
+      });
+      await sleep(5000);
+      await Bot.helpers.deleteOriginalInteractionResponse(interaction.token);
+      return;
+    }
+    accounts = accounts.slice(0, 1);
     const puuids: PUUID[] = [];
     for (const account of accounts) {
       const puuid = await summoner_name_to_puuid(account);
@@ -70,5 +79,7 @@ createCommand({
     await Bot.helpers.editOriginalInteractionResponse(interaction.token, {
       content: `You've been registered 👍`,
     });
+    await sleep(5000);
+    await Bot.helpers.deleteOriginalInteractionResponse(interaction.token);
   },
 });
